@@ -11,6 +11,7 @@ from flask import Flask, request, render_template_string, send_file
 
 app = Flask(__name__)
 
+
 # =========================================================
 # CONFIGURATION
 # =========================================================
@@ -20,17 +21,23 @@ FAL_KEY = os.environ.get("FAL_KEY")
 if FAL_KEY:
     os.environ["FAL_KEY"] = FAL_KEY
 
-# Economy model
-MODEL_ID = "fal-ai/kandinsky5/video/distill/text-to-video"
 
-# Each generated clip is 5 seconds.
+# Correct current FAL endpoint
+MODEL_ID = "fal-ai/kandinsky5/text-to-video/distill"
+
+# We generate 5-second clips and combine them for longer videos
 CLIP_LENGTH = 5
 
-# UI estimate only.
+# Current Kandinsky Distill price for 5 seconds
 COST_PER_CLIP = 0.05
 
+
 OUTPUT_DIR = Path(tempfile.gettempdir()) / "future_shorts"
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+OUTPUT_DIR.mkdir(
+    parents=True,
+    exist_ok=True
+)
 
 
 # =========================================================
@@ -39,6 +46,7 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 HTML = """
 <!DOCTYPE html>
+
 <html lang="en">
 
 <head>
@@ -52,14 +60,18 @@ HTML = """
 
 <title>Future Shorts AI</title>
 
+
 <style>
 
 * {
     box-sizing: border-box;
 }
 
+
 body {
+
     margin: 0;
+
     min-height: 100vh;
 
     font-family:
@@ -81,27 +93,42 @@ body {
     padding: 45px 20px;
 }
 
+
 .wrapper {
+
     width: 100%;
+
     max-width: 720px;
+
     margin: auto;
 }
 
+
 .brand {
+
     margin-bottom: 25px;
 }
 
+
 .brand-title {
+
     font-size: 34px;
+
     font-weight: 800;
+
     margin: 0;
 }
 
+
 .brand-subtitle {
+
     color: #b8c6e8;
+
     margin-top: 7px;
+
     font-size: 15px;
 }
+
 
 .card {
 
@@ -125,6 +152,7 @@ body {
         rgba(0, 0, 0, 0.35);
 }
 
+
 .badge {
 
     display: inline-block;
@@ -147,6 +175,7 @@ body {
     margin-bottom: 22px;
 }
 
+
 label {
 
     display: block;
@@ -159,6 +188,7 @@ label {
 
     margin-bottom: 8px;
 }
+
 
 textarea,
 select {
@@ -183,12 +213,14 @@ select {
     outline: none;
 }
 
+
 textarea {
 
     min-height: 145px;
 
     resize: vertical;
 }
+
 
 textarea:focus,
 select:focus {
@@ -200,12 +232,14 @@ select:focus {
         rgba(72, 215, 255, 0.12);
 }
 
+
 select option {
 
     background: #101d3b;
 
     color: white;
 }
+
 
 .cost-box {
 
@@ -223,12 +257,14 @@ select option {
     padding: 15px;
 }
 
+
 .cost-label {
 
     font-size: 13px;
 
     color: #b9f6e5;
 }
+
 
 .cost {
 
@@ -239,6 +275,7 @@ select option {
     margin-top: 3px;
 }
 
+
 .cost-note {
 
     font-size: 12px;
@@ -247,6 +284,7 @@ select option {
 
     margin-top: 6px;
 }
+
 
 button {
 
@@ -281,10 +319,12 @@ button {
         opacity 0.15s ease;
 }
 
+
 button:hover {
 
     transform: translateY(-1px);
 }
+
 
 button:disabled {
 
@@ -292,6 +332,7 @@ button:disabled {
 
     cursor: wait;
 }
+
 
 .message {
 
@@ -305,6 +346,7 @@ button:disabled {
         rgba(255,255,255,0.08);
 }
 
+
 .error {
 
     border: 1px solid #ff6d7a;
@@ -312,10 +354,12 @@ button:disabled {
     color: #ffd7da;
 }
 
+
 .success {
 
     border: 1px solid #43e0b3;
 }
+
 
 video {
 
@@ -327,6 +371,7 @@ video {
 
     background: black;
 }
+
 
 .download {
 
@@ -350,6 +395,7 @@ video {
         rgba(255,255,255,0.12);
 }
 
+
 .progress {
 
     display: none;
@@ -366,17 +412,23 @@ video {
     color: #dce8ff;
 }
 
+
 @media(max-width: 600px) {
 
     body {
+
         padding: 25px 14px;
     }
 
+
     .card {
+
         padding: 20px;
     }
 
+
     .brand-title {
+
         font-size: 29px;
     }
 }
@@ -388,17 +440,23 @@ video {
 
 <body>
 
+
 <div class="wrapper">
 
 
 <div class="brand">
 
 <h1 class="brand-title">
+
 🎬 Future Shorts AI
+
 </h1>
 
+
 <div class="brand-subtitle">
+
 Turn your idea into an AI video.
+
 </div>
 
 </div>
@@ -408,7 +466,9 @@ Turn your idea into an AI video.
 
 
 <div class="badge">
+
 ⚡ Economy Model
+
 </div>
 
 
@@ -419,7 +479,9 @@ Turn your idea into an AI video.
 
 
 <label>
+
 Your video idea
+
 </label>
 
 
@@ -431,7 +493,9 @@ Your video idea
 
 
 <label>
+
 Video length
+
 </label>
 
 
@@ -486,7 +550,9 @@ Video length
 
 
 <label>
+
 Video format
+
 </label>
 
 
@@ -522,26 +588,38 @@ Square 1:1
 
 <div class="cost-box">
 
+
 <div class="cost-label">
+
 Estimated generation cost
+
 </div>
+
 
 <div
     class="cost"
     id="cost"
 >
+
 $0.05
-</div>
-
-<div class="cost-note">
-Approximate estimate only. Actual FAL charges may vary.
-</div>
 
 </div>
 
 
 <div class="cost-note">
+
+Approximate estimate. Actual FAL charges may vary.
+
+</div>
+
+
+</div>
+
+
+<div class="cost-note">
+
 Economy model: Kandinsky 5 Distill
+
 </div>
 
 
@@ -549,7 +627,9 @@ Economy model: Kandinsky 5 Distill
     type="submit"
     id="generateButton"
 >
+
 ✨ Generate Video
+
 </button>
 
 
@@ -559,7 +639,9 @@ Economy model: Kandinsky 5 Distill
 >
 
 ⏳ Generating your AI video.
-Longer videos require several clips.
+
+Longer videos require multiple AI clips.
+
 Please keep this page open...
 
 </div>
@@ -570,6 +652,7 @@ Please keep this page open...
 
 {% if error %}
 
+
 <div class="message error">
 
 <strong>Error:</strong>
@@ -578,15 +661,20 @@ Please keep this page open...
 
 </div>
 
+
 {% endif %}
 
 
 {% if video_url %}
 
+
 <div class="message success">
 
+
 <strong>
+
 ✅ Your video is ready
+
 </strong>
 
 
@@ -595,10 +683,12 @@ Please keep this page open...
     playsinline
 >
 
+
 <source
     src="{{ video_url }}"
     type="video/mp4"
 >
+
 
 </video>
 
@@ -616,10 +706,12 @@ Please keep this page open...
 
 </div>
 
+
 {% endif %}
 
 
 </div>
+
 
 </div>
 
@@ -629,6 +721,7 @@ Please keep this page open...
 
 function updateCost() {
 
+
     const duration =
         parseInt(
             document.getElementById(
@@ -636,39 +729,52 @@ function updateCost() {
             ).value
         );
 
+
     const clips =
-        Math.ceil(duration / 5);
+        Math.ceil(
+            duration / 5
+        );
+
 
     const estimated =
         clips * 0.05;
+
 
     document.getElementById(
         "cost"
     ).innerText =
         "$" + estimated.toFixed(2);
+
 }
 
 
 document
-    .getElementById("videoForm")
+    .getElementById(
+        "videoForm"
+    )
     .addEventListener(
         "submit",
         function() {
+
 
             const button =
                 document.getElementById(
                     "generateButton"
                 );
 
+
             button.disabled = true;
+
 
             button.innerText =
                 "⏳ Generating...";
+
 
             document.getElementById(
                 "progress"
             ).style.display =
                 "block";
+
         }
     );
 
@@ -689,12 +795,42 @@ updateCost();
 # HELPERS
 # =========================================================
 
+
+def fal_aspect_ratio(user_ratio):
+
+    # Kandinsky Distill currently supports:
+    # 2:3 portrait
+    # 3:2 landscape
+    # 1:1 square
+
+    if user_ratio == "16:9":
+        return "3:2"
+
+    if user_ratio == "1:1":
+        return "1:1"
+
+    return "2:3"
+
+
+def fal_resolution(user_ratio):
+
+    if user_ratio == "16:9":
+        return "768x512"
+
+    if user_ratio == "1:1":
+        return "512x512"
+
+    return "512x768"
+
+
 def extract_video_url(result):
 
     if not result:
         return None
 
+
     video = result.get("video")
+
 
     if isinstance(video, dict):
 
@@ -703,7 +839,9 @@ def extract_video_url(result):
         if url:
             return url
 
+
     videos = result.get("videos")
+
 
     if isinstance(videos, list) and videos:
 
@@ -713,60 +851,110 @@ def extract_video_url(result):
 
             return first.get("url")
 
+
     return None
 
 
-def generate_clip(prompt, aspect_ratio):
+def generate_clip(
+    prompt,
+    user_aspect_ratio
+):
+
+
+    api_ratio = fal_aspect_ratio(
+        user_aspect_ratio
+    )
+
+
+    resolution = fal_resolution(
+        user_aspect_ratio
+    )
+
 
     result = fal_client.subscribe(
+
         MODEL_ID,
+
         arguments={
+
             "prompt": prompt,
-            "duration": 5,
-            "aspect_ratio": aspect_ratio,
+
+            "resolution": resolution,
+
+            "aspect_ratio": api_ratio,
+
+            "duration": "5s",
         },
+
         with_logs=True,
     )
 
-    video_url = extract_video_url(result)
+
+    video_url = extract_video_url(
+        result
+    )
+
 
     if not video_url:
 
         raise RuntimeError(
-            "FAL did not return a video URL."
+            "FAL completed the request but "
+            "did not return a video URL."
         )
+
 
     return video_url
 
 
-def download_video(url, destination):
+def download_video(
+    url,
+    destination
+):
+
 
     response = requests.get(
+
         url,
+
         stream=True,
-        timeout=180
+
+        timeout=300
     )
+
 
     response.raise_for_status()
 
-    with open(destination, "wb") as file:
+
+    with open(
+        destination,
+        "wb"
+    ) as file:
+
 
         for chunk in response.iter_content(
             chunk_size=1024 * 1024
         ):
 
+
             if chunk:
+
                 file.write(chunk)
 
 
-def combine_videos(video_files, output_file):
+def combine_videos(
+    video_files,
+    output_file
+):
+
 
     if len(video_files) == 1:
+
 
         os.replace(
             video_files[0],
             output_file
         )
+
 
         return
 
@@ -783,7 +971,9 @@ def combine_videos(video_files, output_file):
         encoding="utf-8"
     ) as file:
 
+
         for video in video_files:
+
 
             safe_path = (
                 str(video)
@@ -793,61 +983,83 @@ def combine_videos(video_files, output_file):
                 )
             )
 
+
             file.write(
                 f"file '{safe_path}'\\n"
             )
 
 
     command = [
+
         "ffmpeg",
+
         "-y",
+
         "-f",
         "concat",
+
         "-safe",
         "0",
+
         "-i",
         str(concat_file),
+
         "-c:v",
         "libx264",
+
         "-preset",
         "veryfast",
+
         "-crf",
         "23",
+
         "-c:a",
         "aac",
+
         "-movflags",
         "+faststart",
+
         str(output_file),
     ]
 
 
     process = subprocess.run(
+
         command,
+
         stdout=subprocess.PIPE,
+
         stderr=subprocess.PIPE,
+
         text=True
     )
 
 
     try:
+
         concat_file.unlink()
 
     except Exception:
+
         pass
 
 
     if process.returncode != 0:
 
+
         raise RuntimeError(
-            "Could not combine the generated clips. "
+
+            "Could not combine generated clips. "
             "FFmpeg error: "
-            + process.stderr[-1000:]
+            + process.stderr[-1200:]
+
         )
 
 
 # =========================================================
-# ROUTES
+# MAIN ROUTE
 # =========================================================
+
 
 @app.route(
     "/",
@@ -856,9 +1068,12 @@ def combine_videos(video_files, output_file):
         "POST"
     ]
 )
+
 def home():
 
+
     error = None
+
     video_url = None
 
     prompt = ""
@@ -869,6 +1084,7 @@ def home():
 
 
     if request.method == "POST":
+
 
         prompt = (
             request.form
@@ -882,66 +1098,93 @@ def home():
 
         try:
 
+
             duration = int(
+
                 request.form.get(
                     "duration",
                     "5"
                 )
+
             )
 
+
         except ValueError:
+
 
             duration = 5
 
 
-        aspect_ratio = request.form.get(
-            "aspect_ratio",
-            "9:16"
+        aspect_ratio = (
+
+            request.form.get(
+                "aspect_ratio",
+                "9:16"
+            )
+
         )
 
 
         allowed_durations = [
+
             5,
             10,
             20,
             40,
             60
+
         ]
 
 
         allowed_ratios = [
+
             "9:16",
             "16:9",
             "1:1"
+
         ]
 
 
         if duration not in allowed_durations:
 
-            error = "Invalid video duration."
+
+            error = (
+                "Invalid video duration."
+            )
 
 
         elif aspect_ratio not in allowed_ratios:
 
-            error = "Invalid video format."
+
+            error = (
+                "Invalid video format."
+            )
 
 
         elif not prompt:
 
-            error = "Please enter a video idea."
+
+            error = (
+                "Please enter a video idea."
+            )
 
 
         elif not FAL_KEY:
 
+
             error = (
+
                 "FAL_KEY is not configured "
                 "on the server."
+
             )
 
 
         else:
 
+
             try:
+
 
                 number_of_clips = (
                     duration //
@@ -961,6 +1204,7 @@ def home():
                     number_of_clips
                 ):
 
+
                     scene_number = (
                         index + 1
                     )
@@ -972,34 +1216,63 @@ def home():
 This is scene {scene_number} of {number_of_clips}
 of one continuous cinematic video.
 
-Maintain the same subject, characters, clothing,
-environment, lighting, visual style and appearance.
+Maintain consistent subject appearance,
+characters,
+clothing,
+vehicle design,
+environment,
+lighting,
+camera style,
+colour palette,
+and visual style.
 
-Create a natural progression from the previous scene.
+The action should naturally progress
+through the overall story.
 
-Do not add captions, subtitles, logos, watermarks,
-UI elements or written text.
+Do not add any text.
 
-Cinematic realistic movement.
+Do not add captions.
+
+Do not add subtitles.
+
+Do not add logos.
+
+Do not add watermarks.
+
+Do not add UI elements.
+
+Smooth realistic movement.
+
+Cinematic composition.
+
 High visual quality.
 """
 
 
                     remote_url = generate_clip(
+
                         scene_prompt,
+
                         aspect_ratio
+
                     )
 
 
                     local_file = (
+
                         OUTPUT_DIR /
+
                         f"{job_id}_{index}.mp4"
+
                     )
 
 
                     download_video(
+
                         remote_url,
+
                         local_file
+
                     )
 
 
@@ -1009,62 +1282,99 @@ High visual quality.
 
 
                 final_file = (
+
                     OUTPUT_DIR /
+
                     f"{job_id}_final.mp4"
+
                 )
 
 
                 combine_videos(
+
                     downloaded_files,
+
                     final_file
+
                 )
 
 
                 for temp_file in downloaded_files:
 
+
                     if temp_file == final_file:
+
                         continue
 
+
                     try:
+
                         temp_file.unlink()
 
                     except Exception:
+
                         pass
 
 
                 video_url = (
-                    "/video/"
-                    + final_file.name
+
+                    "/video/" +
+
+                    final_file.name
+
                 )
 
 
             except Exception as exc:
 
+
                 print(
+
                     "VIDEO GENERATION ERROR:",
+
                     repr(exc),
+
                     flush=True
+
                 )
+
 
                 error = str(exc)
 
 
     return render_template_string(
+
         HTML,
+
         prompt=prompt,
+
         duration=duration,
+
         aspect_ratio=aspect_ratio,
+
         video_url=video_url,
+
         error=error,
+
     )
 
 
-@app.route("/video/<filename>")
+# =========================================================
+# VIDEO ROUTE
+# =========================================================
+
+
+@app.route(
+    "/video/<filename>"
+)
+
 def video(filename):
+
 
     safe_name = os.path.basename(
         filename
     )
+
 
     file_path = (
         OUTPUT_DIR /
@@ -1074,33 +1384,49 @@ def video(filename):
 
     if not file_path.exists():
 
+
         return (
+
             "Video not found.",
-            404,
+
+            404
+
         )
 
 
     return send_file(
+
         file_path,
+
         mimetype="video/mp4",
-        as_attachment=False,
+
+        as_attachment=False
+
     )
 
 
 # =========================================================
-# START APPLICATION
+# LOCAL START
 # =========================================================
+
 
 if __name__ == "__main__":
 
+
     port = int(
+
         os.environ.get(
             "PORT",
             10000
         )
+
     )
 
+
     app.run(
+
         host="0.0.0.0",
+
         port=port
+
     )

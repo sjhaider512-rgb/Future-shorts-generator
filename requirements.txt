@@ -1,4 +1,4 @@
-flast
+flasK
 fal-client
 requests
 gunicorn

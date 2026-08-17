@@ -11,350 +11,378 @@ from flask import Flask, request, render_template_string, send_file
 
 app = Flask(__name__)
 
-# ---------------------------------------------------------
+# =========================================================
 # CONFIGURATION
-# ---------------------------------------------------------
+# =========================================================
 
 FAL_KEY = os.environ.get("FAL_KEY")
 
 if FAL_KEY:
     os.environ["FAL_KEY"] = FAL_KEY
 
-# Economy video model
+# Economy model
 MODEL_ID = "fal-ai/kandinsky5/video/distill/text-to-video"
 
-# Each API generation produces a short clip.
-# Longer videos are created from multiple clips.
+# Each generated clip is 5 seconds.
 CLIP_LENGTH = 5
 
-# Approximate display cost per generated 5-second clip.
-# This is only for the UI estimate.
+# UI estimate only.
 COST_PER_CLIP = 0.05
 
 OUTPUT_DIR = Path(tempfile.gettempdir()) / "future_shorts"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
-# ---------------------------------------------------------
+# =========================================================
 # HTML
-# ---------------------------------------------------------
+# =========================================================
 
 HTML = """
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-    <meta charset="UTF-8">
 
-    <meta
-        name="viewport"
-        content="width=device-width, initial-scale=1.0"
-    >
+<meta charset="UTF-8">
 
-    <title>Future Shorts AI</title>
+<meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+>
 
-    <style>
+<title>Future Shorts AI</title>
 
-        * {
-            box-sizing: border-box;
-        }
+<style>
 
-        body {
-            margin: 0;
-            min-height: 100vh;
-            font-family:
-                Inter,
-                Arial,
-                Helvetica,
-                sans-serif;
+* {
+    box-sizing: border-box;
+}
 
-            color: white;
+body {
+    margin: 0;
+    min-height: 100vh;
 
-            background:
-                radial-gradient(
-                    circle at top left,
-                    #17346d 0%,
-                    #08142e 42%,
-                    #050b19 100%
-                );
+    font-family:
+        Inter,
+        Arial,
+        Helvetica,
+        sans-serif;
 
-            padding: 45px 20px;
-        }
+    color: white;
 
-        .wrapper {
-            width: 100%;
-            max-width: 720px;
-            margin: auto;
-        }
+    background:
+        radial-gradient(
+            circle at top left,
+            #17346d 0%,
+            #08142e 42%,
+            #050b19 100%
+        );
 
-        .brand {
-            margin-bottom: 25px;
-        }
+    padding: 45px 20px;
+}
 
-        .brand-title {
-            font-size: 34px;
-            font-weight: 800;
-            margin: 0;
-        }
+.wrapper {
+    width: 100%;
+    max-width: 720px;
+    margin: auto;
+}
 
-        .brand-subtitle {
-            color: #b8c6e8;
-            margin-top: 7px;
-            font-size: 15px;
-        }
+.brand {
+    margin-bottom: 25px;
+}
 
-        .card {
-            background:
-                linear-gradient(
-                    145deg,
-                    rgba(31, 67, 132, 0.88),
-                    rgba(15, 30, 68, 0.95)
-                );
+.brand-title {
+    font-size: 34px;
+    font-weight: 800;
+    margin: 0;
+}
 
-            border:
-                1px solid
-                rgba(121, 172, 255, 0.25);
+.brand-subtitle {
+    color: #b8c6e8;
+    margin-top: 7px;
+    font-size: 15px;
+}
 
-            border-radius: 24px;
+.card {
 
-            padding: 28px;
+    background:
+        linear-gradient(
+            145deg,
+            rgba(31, 67, 132, 0.88),
+            rgba(15, 30, 68, 0.95)
+        );
 
-            box-shadow:
-                0 30px 80px
-                rgba(0, 0, 0, 0.35);
-        }
+    border:
+        1px solid
+        rgba(121, 172, 255, 0.25);
 
-        .badge {
-            display: inline-block;
+    border-radius: 24px;
 
-            background:
-                rgba(74, 147, 255, 0.18);
+    padding: 28px;
 
-            border:
-                1px solid
-                rgba(93, 168, 255, 0.35);
+    box-shadow:
+        0 30px 80px
+        rgba(0, 0, 0, 0.35);
+}
 
-            color: #dceaff;
+.badge {
 
-            border-radius: 20px;
+    display: inline-block;
 
-            padding: 7px 12px;
+    background:
+        rgba(74, 147, 255, 0.18);
 
-            font-size: 13px;
+    border:
+        1px solid
+        rgba(93, 168, 255, 0.35);
 
-            margin-bottom: 22px;
-        }
+    color: #dceaff;
 
-        label {
-            display: block;
+    border-radius: 20px;
 
-            font-size: 15px;
+    padding: 7px 12px;
 
-            font-weight: 700;
+    font-size: 13px;
 
-            margin-top: 17px;
+    margin-bottom: 22px;
+}
 
-            margin-bottom: 8px;
-        }
+label {
 
-        textarea,
-        select {
+    display: block;
 
-            width: 100%;
+    font-size: 15px;
 
-            border:
-                1px solid
-                #5270a5;
+    font-weight: 700;
 
-            border-radius: 13px;
+    margin-top: 17px;
 
-            background:
-                rgba(7, 18, 42, 0.72);
+    margin-bottom: 8px;
+}
 
-            color: white;
+textarea,
+select {
 
-            font-size: 15px;
+    width: 100%;
 
-            padding: 14px;
+    border:
+        1px solid
+        #5270a5;
 
-            outline: none;
-        }
+    border-radius: 13px;
 
-        textarea {
-            min-height: 145px;
-            resize: vertical;
-        }
+    background:
+        rgba(7, 18, 42, 0.72);
 
-        textarea:focus,
-        select:focus {
-            border-color: #48d7ff;
+    color: white;
 
-            box-shadow:
-                0 0 0 3px
-                rgba(72, 215, 255, 0.12);
-        }
+    font-size: 15px;
 
-        select option {
-            background: #101d3b;
-            color: white;
-        }
+    padding: 14px;
 
-        .cost-box {
+    outline: none;
+}
 
-            margin-top: 22px;
+textarea {
 
-            border:
-                1px solid
-                rgba(45, 236, 189, 0.55);
+    min-height: 145px;
 
-            background:
-                rgba(15, 100, 82, 0.16);
+    resize: vertical;
+}
 
-            border-radius: 14px;
+textarea:focus,
+select:focus {
 
-            padding: 15px;
-        }
+    border-color: #48d7ff;
 
-        .cost-label {
-            font-size: 13px;
-            color: #b9f6e5;
-        }
+    box-shadow:
+        0 0 0 3px
+        rgba(72, 215, 255, 0.12);
+}
 
-        .cost {
-            font-size: 27px;
-            font-weight: 800;
-            margin-top: 3px;
-        }
+select option {
 
-        .cost-note {
-            font-size: 12px;
-            color: #9eb1d8;
-            margin-top: 6px;
-        }
+    background: #101d3b;
 
-        button {
+    color: white;
+}
 
-            width: 100%;
+.cost-box {
 
-            margin-top: 23px;
+    margin-top: 22px;
 
-            padding: 16px;
+    border:
+        1px solid
+        rgba(45, 236, 189, 0.55);
 
-            border: none;
+    background:
+        rgba(15, 100, 82, 0.16);
 
-            border-radius: 14px;
+    border-radius: 14px;
 
-            cursor: pointer;
+    padding: 15px;
+}
 
-            color: white;
+.cost-label {
 
-            font-size: 16px;
+    font-size: 13px;
 
-            font-weight: 800;
+    color: #b9f6e5;
+}
 
-            background:
-                linear-gradient(
-                    90deg,
-                    #21d4fd,
-                    #7868ff,
-                    #e56cff
-                );
+.cost {
 
-            transition:
-                transform 0.15s ease,
-                opacity 0.15s ease;
-        }
+    font-size: 27px;
 
-        button:hover {
-            transform: translateY(-1px);
-        }
+    font-weight: 800;
 
-        button:disabled {
-            opacity: 0.6;
-            cursor: wait;
-        }
+    margin-top: 3px;
+}
 
-        .message {
+.cost-note {
 
-            margin-top: 22px;
+    font-size: 12px;
 
-            padding: 15px;
+    color: #9eb1d8;
 
-            border-radius: 12px;
+    margin-top: 6px;
+}
 
-            background:
-                rgba(255,255,255,0.08);
-        }
+button {
 
-        .error {
-            border: 1px solid #ff6d7a;
-            color: #ffd7da;
-        }
+    width: 100%;
 
-        .success {
-            border: 1px solid #43e0b3;
-        }
+    margin-top: 23px;
 
-        video {
-            width: 100%;
-            margin-top: 18px;
-            border-radius: 15px;
-            background: black;
-        }
+    padding: 16px;
 
-        .download {
+    border: none;
 
-            display: block;
+    border-radius: 14px;
 
-            text-align: center;
+    cursor: pointer;
 
-            text-decoration: none;
+    color: white;
 
-            color: white;
+    font-size: 16px;
 
-            font-weight: 700;
+    font-weight: 800;
 
-            margin-top: 14px;
+    background:
+        linear-gradient(
+            90deg,
+            #21d4fd,
+            #7868ff,
+            #e56cff
+        );
 
-            padding: 13px;
+    transition:
+        transform 0.15s ease,
+        opacity 0.15s ease;
+}
 
-            border-radius: 12px;
+button:hover {
 
-            background:
-                rgba(255,255,255,0.12);
-        }
+    transform: translateY(-1px);
+}
 
-        .progress {
+button:disabled {
 
-            display: none;
+    opacity: 0.6;
 
-            margin-top: 20px;
+    cursor: wait;
+}
 
-            padding: 15px;
+.message {
 
-            border-radius: 12px;
+    margin-top: 22px;
 
-            background:
-                rgba(255,255,255,0.08);
+    padding: 15px;
 
-            color: #dce8ff;
-        }
+    border-radius: 12px;
 
-        @media(max-width: 600px) {
+    background:
+        rgba(255,255,255,0.08);
+}
 
-            body {
-                padding: 25px 14px;
-            }
+.error {
 
-            .card {
-                padding: 20px;
-            }
+    border: 1px solid #ff6d7a;
 
-            .brand-title {
-                font-size: 29px;
-            }
-        }
+    color: #ffd7da;
+}
 
-    </style>
+.success {
+
+    border: 1px solid #43e0b3;
+}
+
+video {
+
+    width: 100%;
+
+    margin-top: 18px;
+
+    border-radius: 15px;
+
+    background: black;
+}
+
+.download {
+
+    display: block;
+
+    text-align: center;
+
+    text-decoration: none;
+
+    color: white;
+
+    font-weight: 700;
+
+    margin-top: 14px;
+
+    padding: 13px;
+
+    border-radius: 12px;
+
+    background:
+        rgba(255,255,255,0.12);
+}
+
+.progress {
+
+    display: none;
+
+    margin-top: 20px;
+
+    padding: 15px;
+
+    border-radius: 12px;
+
+    background:
+        rgba(255,255,255,0.08);
+
+    color: #dce8ff;
+}
+
+@media(max-width: 600px) {
+
+    body {
+        padding: 25px 14px;
+    }
+
+    .card {
+        padding: 20px;
+    }
+
+    .brand-title {
+        font-size: 29px;
+    }
+}
+
+</style>
+
 </head>
 
 
@@ -362,299 +390,318 @@ HTML = """
 
 <div class="wrapper">
 
-    <div class="brand">
 
-        <h1 class="brand-title">
-            🎬 Future Shorts AI
-        </h1>
+<div class="brand">
 
-        <div class="brand-subtitle">
-            Turn your idea into an AI video.
-        </div>
+<h1 class="brand-title">
+🎬 Future Shorts AI
+</h1>
 
-    </div>
+<div class="brand-subtitle">
+Turn your idea into an AI video.
+</div>
 
-
-    <div class="card">
-
-        <div class="badge">
-            ⚡ Economy Model
-        </div>
+</div>
 
 
-        <form
-            method="POST"
-            id="videoForm"
-        >
-
-            <label>
-                Your video idea
-            </label>
-
-            <textarea
-                name="prompt"
-                required
-                placeholder="Example: Futuristic London at night with flying cars above Tower Bridge, cinematic lighting, realistic movement..."
-            >{{ prompt }}</textarea>
+<div class="card">
 
 
-            <label>
-                Video length
-            </label>
-
-            <select
-                name="duration"
-                id="duration"
-                onchange="updateCost()"
-            >
-
-                <option
-                    value="5"
-                    {% if duration == 5 %}selected{% endif %}
-                >
-                    5 seconds
-                </option>
-
-                <option
-                    value="10"
-                    {% if duration == 10 %}selected{% endif %}
-                >
-                    10 seconds
-                </option>
-
-                <option
-                    value="20"
-                    {% if duration == 20 %}selected{% endif %}
-                >
-                    20 seconds
-                </option>
-
-                <option
-                    value="40"
-                    {% if duration == 40 %}selected{% endif %}
-                >
-                    40 seconds
-                </option>
-
-                <option
-                    value="60"
-                    {% if duration == 60 %}selected{% endif %}
-                >
-                    60 seconds
-                </option>
-
-            </select>
+<div class="badge">
+⚡ Economy Model
+</div>
 
 
-            <label>
-                Video format
-            </label>
-
-            <select name="aspect_ratio">
-
-                <option
-                    value="9:16"
-                    {% if aspect_ratio == "9:16" %}selected{% endif %}
-                >
-                    Portrait 9:16 — TikTok / Shorts / Reels
-                </option>
-
-                <option
-                    value="16:9"
-                    {% if aspect_ratio == "16:9" %}selected{% endif %}
-                >
-                    Landscape 16:9 — YouTube
-                </option>
-
-                <option
-                    value="1:1"
-                    {% if aspect_ratio == "1:1" %}selected{% endif %}
-                >
-                    Square 1:1
-                </option>
-
-            </select>
+<form
+    method="POST"
+    id="videoForm"
+>
 
 
-            <div class="cost-box">
-
-                <div class="cost-label">
-                    Estimated generation cost
-                </div>
-
-                <div
-                    class="cost"
-                    id="cost"
-                >
-                    $0.05
-                </div>
-
-                <div class="cost-note">
-                    Approximate estimate. Actual FAL charges may vary.
-                </div>
-
-            </div>
+<label>
+Your video idea
+</label>
 
 
-            <div class="cost-note">
-                Economy model: Kandinsky 5 Distill
-            </div>
+<textarea
+    name="prompt"
+    required
+    placeholder="Example: Futuristic London at night with flying cars above Tower Bridge, cinematic lighting, realistic movement..."
+>{{ prompt }}</textarea>
 
 
-            <button
-                type="submit"
-                id="generateButton"
-            >
-                ✨ Generate Video
-            </button>
+<label>
+Video length
+</label>
 
 
-            <div
-                class="progress"
-                id="progress"
-            >
-                ⏳ Generating your AI video.
-                Longer videos require several clips,
-                so please keep this page open...
-            </div>
-
-        </form>
+<select
+    name="duration"
+    id="duration"
+    onchange="updateCost()"
+>
 
 
-        {% if error %}
-
-            <div class="message error">
-                <strong>Error:</strong>
-                {{ error }}
-            </div>
-
-        {% endif %}
+<option
+    value="5"
+    {% if duration == 5 %}selected{% endif %}
+>
+5 seconds
+</option>
 
 
-        {% if video_url %}
+<option
+    value="10"
+    {% if duration == 10 %}selected{% endif %}
+>
+10 seconds
+</option>
 
-            <div class="message success">
 
-                <strong>
-                    ✅ Your video is ready
-                </strong>
+<option
+    value="20"
+    {% if duration == 20 %}selected{% endif %}
+>
+20 seconds
+</option>
 
-                <video
-                    controls
-                    playsinline
-                >
-                    <source
-                        src="{{ video_url }}"
-                        type="video/mp4"
-                    >
-                </video>
 
-                <a
-                    class="download"
-                    href="{{ video_url }}"
-                    download
-                >
-                    ⬇ Download Video
-                </a>
+<option
+    value="40"
+    {% if duration == 40 %}selected{% endif %}
+>
+40 seconds
+</option>
 
-            </div>
 
-        {% endif %}
+<option
+    value="60"
+    {% if duration == 60 %}selected{% endif %}
+>
+60 seconds
+</option>
 
-    </div>
+
+</select>
+
+
+<label>
+Video format
+</label>
+
+
+<select name="aspect_ratio">
+
+
+<option
+    value="9:16"
+    {% if aspect_ratio == "9:16" %}selected{% endif %}
+>
+Portrait 9:16 — TikTok / Shorts / Reels
+</option>
+
+
+<option
+    value="16:9"
+    {% if aspect_ratio == "16:9" %}selected{% endif %}
+>
+Landscape 16:9 — YouTube
+</option>
+
+
+<option
+    value="1:1"
+    {% if aspect_ratio == "1:1" %}selected{% endif %}
+>
+Square 1:1
+</option>
+
+
+</select>
+
+
+<div class="cost-box">
+
+<div class="cost-label">
+Estimated generation cost
+</div>
+
+<div
+    class="cost"
+    id="cost"
+>
+$0.05
+</div>
+
+<div class="cost-note">
+Approximate estimate only. Actual FAL charges may vary.
+</div>
+
+</div>
+
+
+<div class="cost-note">
+Economy model: Kandinsky 5 Distill
+</div>
+
+
+<button
+    type="submit"
+    id="generateButton"
+>
+✨ Generate Video
+</button>
+
+
+<div
+    class="progress"
+    id="progress"
+>
+
+⏳ Generating your AI video.
+Longer videos require several clips.
+Please keep this page open...
+
+</div>
+
+
+</form>
+
+
+{% if error %}
+
+<div class="message error">
+
+<strong>Error:</strong>
+
+{{ error }}
+
+</div>
+
+{% endif %}
+
+
+{% if video_url %}
+
+<div class="message success">
+
+<strong>
+✅ Your video is ready
+</strong>
+
+
+<video
+    controls
+    playsinline
+>
+
+<source
+    src="{{ video_url }}"
+    type="video/mp4"
+>
+
+</video>
+
+
+<a
+    class="download"
+    href="{{ video_url }}"
+    download
+>
+
+⬇ Download Video
+
+</a>
+
+
+</div>
+
+{% endif %}
+
+
+</div>
 
 </div>
 
 
 <script>
 
-    function updateCost() {
 
-        const duration =
-            parseInt(
-                document.getElementById(
-                    "duration"
-                ).value
-            );
+function updateCost() {
 
-        const clips =
-            Math.ceil(duration / 5);
-
-        const estimated =
-            clips * 0.05;
-
-        document.getElementById(
-            "cost"
-        ).innerText =
-            "$" + estimated.toFixed(2);
-    }
-
-
-    document
-        .getElementById("videoForm")
-        .addEventListener(
-            "submit",
-            function() {
-
-                const button =
-                    document.getElementById(
-                        "generateButton"
-                    );
-
-                button.disabled = true;
-
-                button.innerText =
-                    "⏳ Generating...";
-
-                document.getElementById(
-                    "progress"
-                ).style.display =
-                    "block";
-            }
+    const duration =
+        parseInt(
+            document.getElementById(
+                "duration"
+            ).value
         );
 
+    const clips =
+        Math.ceil(duration / 5);
 
-    updateCost();
+    const estimated =
+        clips * 0.05;
+
+    document.getElementById(
+        "cost"
+    ).innerText =
+        "$" + estimated.toFixed(2);
+}
+
+
+document
+    .getElementById("videoForm")
+    .addEventListener(
+        "submit",
+        function() {
+
+            const button =
+                document.getElementById(
+                    "generateButton"
+                );
+
+            button.disabled = true;
+
+            button.innerText =
+                "⏳ Generating...";
+
+            document.getElementById(
+                "progress"
+            ).style.display =
+                "block";
+        }
+    );
+
+
+updateCost();
+
 
 </script>
 
+
 </body>
+
 </html>
 """
 
 
-# ---------------------------------------------------------
+# =========================================================
 # HELPERS
-# ---------------------------------------------------------
-
-def aspect_ratio_to_size(aspect_ratio):
-
-    if aspect_ratio == "16:9":
-        return "landscape_16_9"
-
-    if aspect_ratio == "1:1":
-        return "square"
-
-    return "portrait_9_16"
-
+# =========================================================
 
 def extract_video_url(result):
 
     if not result:
         return None
 
-    # Most FAL video endpoints return:
-    # {"video": {"url": "..."}}
-
     video = result.get("video")
 
     if isinstance(video, dict):
+
         url = video.get("url")
 
         if url:
             return url
-
-    # Some endpoints may return videos array.
 
     videos = result.get("videos")
 
@@ -663,6 +710,7 @@ def extract_video_url(result):
         first = videos[0]
 
         if isinstance(first, dict):
+
             return first.get("url")
 
     return None
@@ -670,27 +718,20 @@ def extract_video_url(result):
 
 def generate_clip(prompt, aspect_ratio):
 
-    size = aspect_ratio_to_size(
-        aspect_ratio
-    )
-
     result = fal_client.subscribe(
         MODEL_ID,
-
         arguments={
             "prompt": prompt,
             "duration": 5,
             "aspect_ratio": aspect_ratio,
         },
-
         with_logs=True,
     )
 
-    video_url = extract_video_url(
-        result
-    )
+    video_url = extract_video_url(result)
 
     if not video_url:
+
         raise RuntimeError(
             "FAL did not return a video URL."
         )
@@ -708,10 +749,7 @@ def download_video(url, destination):
 
     response.raise_for_status()
 
-    with open(
-        destination,
-        "wb"
-    ) as file:
+    with open(destination, "wb") as file:
 
         for chunk in response.iter_content(
             chunk_size=1024 * 1024
@@ -725,7 +763,6 @@ def combine_videos(video_files, output_file):
 
     if len(video_files) == 1:
 
-        # No FFmpeg processing required.
         os.replace(
             video_files[0],
             output_file
@@ -764,31 +801,22 @@ def combine_videos(video_files, output_file):
     command = [
         "ffmpeg",
         "-y",
-
         "-f",
         "concat",
-
         "-safe",
         "0",
-
         "-i",
         str(concat_file),
-
         "-c:v",
         "libx264",
-
         "-preset",
         "veryfast",
-
         "-crf",
         "23",
-
         "-c:a",
         "aac",
-
         "-movflags",
         "+faststart",
-
         str(output_file),
     ]
 
@@ -803,6 +831,7 @@ def combine_videos(video_files, output_file):
 
     try:
         concat_file.unlink()
+
     except Exception:
         pass
 
@@ -816,9 +845,9 @@ def combine_videos(video_files, output_file):
         )
 
 
-# ---------------------------------------------------------
+# =========================================================
 # ROUTES
-# ---------------------------------------------------------
+# =========================================================
 
 @app.route(
     "/",
@@ -865,11 +894,9 @@ def home():
             duration = 5
 
 
-        aspect_ratio = (
-            request.form.get(
-                "aspect_ratio",
-                "9:16"
-            )
+        aspect_ratio = request.form.get(
+            "aspect_ratio",
+            "9:16"
         )
 
 
@@ -891,26 +918,17 @@ def home():
 
         if duration not in allowed_durations:
 
-            error = (
-                "Invalid video duration."
-            )
+            error = "Invalid video duration."
 
 
-        elif (
-            aspect_ratio
-            not in allowed_ratios
-        ):
+        elif aspect_ratio not in allowed_ratios:
 
-            error = (
-                "Invalid video format."
-            )
+            error = "Invalid video format."
 
 
         elif not prompt:
 
-            error = (
-                "Please enter a video idea."
-            )
+            error = "Please enter a video idea."
 
 
         elif not FAL_KEY:
@@ -939,7 +957,6 @@ def home():
                 downloaded_files = []
 
 
-                # Generate several related scenes.
                 for index in range(
                     number_of_clips
                 ):
@@ -955,35 +972,22 @@ def home():
 This is scene {scene_number} of {number_of_clips}
 of one continuous cinematic video.
 
-Maintain the same:
-subject,
-characters,
-clothing,
-environment,
-lighting,
-visual style,
-and overall appearance.
+Maintain the same subject, characters, clothing,
+environment, lighting, visual style and appearance.
 
-Create natural progression from the previous scene.
+Create a natural progression from the previous scene.
 
-Do not add:
-captions,
-subtitles,
-logos,
-watermarks,
-UI elements,
-or text.
+Do not add captions, subtitles, logos, watermarks,
+UI elements or written text.
 
 Cinematic realistic movement.
 High visual quality.
 """
 
 
-                    remote_url = (
-                        generate_clip(
-                            scene_prompt,
-                            aspect_ratio
-                        )
+                    remote_url = generate_clip(
+                        scene_prompt,
+                        aspect_ratio
                     )
 
 
@@ -1016,7 +1020,6 @@ High visual quality.
                 )
 
 
-                # Remove temporary clips.
                 for temp_file in downloaded_files:
 
                     if temp_file == final_file:
@@ -1024,6 +1027,7 @@ High visual quality.
 
                     try:
                         temp_file.unlink()
+
                     except Exception:
                         pass
 
@@ -1046,35 +1050,35 @@ High visual quality.
 
 
     return render_template_string(
-
         HTML,
-
         prompt=prompt,
-
         duration=duration,
-
         aspect_ratio=aspect_ratio,
-
         video_url=video_url,
-
         error=error,
     )
 
 
-@app.route(
-    "/video/<filename>"
-)
+@app.route("/video/<filename>")
 def video(filename):
-    # Prevent arbitrary file access.
-    safe_name = os.path.basename(filename)
 
-    file_path = OUTPUT_DIR / safe_name
+    safe_name = os.path.basename(
+        filename
+    )
+
+    file_path = (
+        OUTPUT_DIR /
+        safe_name
+    )
+
 
     if not file_path.exists():
+
         return (
             "Video not found.",
             404,
         )
+
 
     return send_file(
         file_path,
@@ -1082,15 +1086,21 @@ def video(filename):
         as_attachment=False,
     )
 
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
 
-        file_path,
-        mimetype="video/mp4",
-        as_attachment=False,
+# =========================================================
+# START APPLICATION
+# =========================================================
+
+if __name__ == "__main__":
+
+    port = int(
+        os.environ.get(
+            "PORT",
+            10000
+        )
     )
 
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(
+        host="0.0.0.0",
+        port=port
+    )

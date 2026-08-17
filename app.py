@@ -1,176 +1,395 @@
-import traceback
+import os
+import uuid
+import tempfile
+import subprocess
+from pathlib import Path
+
+import requests
 import fal_client
-from flask import Flask, request, jsonify, render_template_string
+from flask import Flask, request, render_template_string, send_file
+
 
 app = Flask(__name__)
 
-MODEL = "fal-ai/kandinsky5/text-to-video/distill"
+# ---------------------------------------------------------
+# CONFIGURATION
+# ---------------------------------------------------------
+
+FAL_KEY = os.environ.get("FAL_KEY")
+
+if FAL_KEY:
+    os.environ["FAL_KEY"] = FAL_KEY
+
+# Economy video model
+MODEL_ID = "fal-ai/kandinsky5/video/distill/text-to-video"
+
+# Each API generation produces a short clip.
+# Longer videos are created from multiple clips.
+CLIP_LENGTH = 5
+
+# Approximate display cost per generated 5-second clip.
+# This is only for the UI estimate.
+COST_PER_CLIP = 0.05
+
+OUTPUT_DIR = Path(tempfile.gettempdir()) / "future_shorts"
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+
+# ---------------------------------------------------------
+# HTML
+# ---------------------------------------------------------
 
 HTML = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
     <title>Future Shorts AI</title>
 
     <style>
+
         * {
             box-sizing: border-box;
         }
 
         body {
             margin: 0;
-            font-family: Arial, sans-serif;
-            background: #0b0b14;
+            min-height: 100vh;
+            font-family:
+                Inter,
+                Arial,
+                Helvetica,
+                sans-serif;
+
             color: white;
+
+            background:
+                radial-gradient(
+                    circle at top left,
+                    #17346d 0%,
+                    #08142e 42%,
+                    #050b19 100%
+                );
+
+            padding: 45px 20px;
         }
 
-        .container {
+        .wrapper {
+            width: 100%;
             max-width: 720px;
             margin: auto;
-            padding: 28px 18px 60px;
         }
 
-        .logo {
+        .brand {
+            margin-bottom: 25px;
+        }
+
+        .brand-title {
             font-size: 34px;
             font-weight: 800;
-            margin-bottom: 5px;
+            margin: 0;
         }
 
-        .subtitle {
-            color: #aaa;
-            margin-bottom: 30px;
-        }
-
-        .card {
-            background: #171724;
-            border: 1px solid #29293a;
-            border-radius: 20px;
-            padding: 22px;
-            margin-bottom: 20px;
-        }
-
-        textarea {
-            width: 100%;
-            min-height: 140px;
-            resize: vertical;
-            padding: 16px;
-            border-radius: 14px;
-            border: 1px solid #3a3a4c;
-            background: #0f0f19;
-            color: white;
-            font-size: 16px;
-            outline: none;
-        }
-
-        label {
-            display: block;
-            font-weight: bold;
-            margin-top: 18px;
-            margin-bottom: 8px;
-        }
-
-        select {
-            width: 100%;
-            padding: 13px;
-            border-radius: 12px;
-            background: #0f0f19;
-            color: white;
-            border: 1px solid #3a3a4c;
+        .brand-subtitle {
+            color: #b8c6e8;
+            margin-top: 7px;
             font-size: 15px;
         }
 
-        .price {
-            margin-top: 20px;
-            background: #101c17;
-            border: 1px solid #234c38;
-            padding: 14px;
-            border-radius: 12px;
-        }
+        .card {
+            background:
+                linear-gradient(
+                    145deg,
+                    rgba(31, 67, 132, 0.88),
+                    rgba(15, 30, 68, 0.95)
+                );
 
-        .price strong {
-            font-size: 22px;
-        }
+            border:
+                1px solid
+                rgba(121, 172, 255, 0.25);
 
-        button {
-            width: 100%;
-            margin-top: 20px;
-            padding: 16px;
-            border: 0;
-            border-radius: 14px;
-            font-size: 17px;
-            font-weight: bold;
-            cursor: pointer;
-            background: linear-gradient(90deg, #7c5cff, #b34cff);
-            color: white;
-        }
+            border-radius: 24px;
 
-        button:hover {
-            opacity: 0.92;
-        }
+            padding: 28px;
 
-        video {
-            width: 100%;
-            border-radius: 16px;
-            margin-top: 12px;
-            background: black;
-        }
-
-        .download {
-            display: block;
-            text-align: center;
-            margin-top: 14px;
-            padding: 13px;
-            border-radius: 12px;
-            text-decoration: none;
-            color: white;
-            background: #29293a;
-        }
-
-        .error {
-            color: #ff7777;
-            background: #2a1418;
-            padding: 14px;
-            border-radius: 12px;
-            margin-top: 18px;
+            box-shadow:
+                0 30px 80px
+                rgba(0, 0, 0, 0.35);
         }
 
         .badge {
             display: inline-block;
-            padding: 6px 10px;
-            background: #25253a;
+
+            background:
+                rgba(74, 147, 255, 0.18);
+
+            border:
+                1px solid
+                rgba(93, 168, 255, 0.35);
+
+            color: #dceaff;
+
             border-radius: 20px;
-            font-size: 12px;
-            margin-bottom: 14px;
-            color: #c9c9dc;
+
+            padding: 7px 12px;
+
+            font-size: 13px;
+
+            margin-bottom: 22px;
         }
 
-        .small {
-            color: #8f8f9f;
-            font-size: 13px;
-            margin-top: 10px;
+        label {
+            display: block;
+
+            font-size: 15px;
+
+            font-weight: 700;
+
+            margin-top: 17px;
+
+            margin-bottom: 8px;
         }
+
+        textarea,
+        select {
+
+            width: 100%;
+
+            border:
+                1px solid
+                #5270a5;
+
+            border-radius: 13px;
+
+            background:
+                rgba(7, 18, 42, 0.72);
+
+            color: white;
+
+            font-size: 15px;
+
+            padding: 14px;
+
+            outline: none;
+        }
+
+        textarea {
+            min-height: 145px;
+            resize: vertical;
+        }
+
+        textarea:focus,
+        select:focus {
+            border-color: #48d7ff;
+
+            box-shadow:
+                0 0 0 3px
+                rgba(72, 215, 255, 0.12);
+        }
+
+        select option {
+            background: #101d3b;
+            color: white;
+        }
+
+        .cost-box {
+
+            margin-top: 22px;
+
+            border:
+                1px solid
+                rgba(45, 236, 189, 0.55);
+
+            background:
+                rgba(15, 100, 82, 0.16);
+
+            border-radius: 14px;
+
+            padding: 15px;
+        }
+
+        .cost-label {
+            font-size: 13px;
+            color: #b9f6e5;
+        }
+
+        .cost {
+            font-size: 27px;
+            font-weight: 800;
+            margin-top: 3px;
+        }
+
+        .cost-note {
+            font-size: 12px;
+            color: #9eb1d8;
+            margin-top: 6px;
+        }
+
+        button {
+
+            width: 100%;
+
+            margin-top: 23px;
+
+            padding: 16px;
+
+            border: none;
+
+            border-radius: 14px;
+
+            cursor: pointer;
+
+            color: white;
+
+            font-size: 16px;
+
+            font-weight: 800;
+
+            background:
+                linear-gradient(
+                    90deg,
+                    #21d4fd,
+                    #7868ff,
+                    #e56cff
+                );
+
+            transition:
+                transform 0.15s ease,
+                opacity 0.15s ease;
+        }
+
+        button:hover {
+            transform: translateY(-1px);
+        }
+
+        button:disabled {
+            opacity: 0.6;
+            cursor: wait;
+        }
+
+        .message {
+
+            margin-top: 22px;
+
+            padding: 15px;
+
+            border-radius: 12px;
+
+            background:
+                rgba(255,255,255,0.08);
+        }
+
+        .error {
+            border: 1px solid #ff6d7a;
+            color: #ffd7da;
+        }
+
+        .success {
+            border: 1px solid #43e0b3;
+        }
+
+        video {
+            width: 100%;
+            margin-top: 18px;
+            border-radius: 15px;
+            background: black;
+        }
+
+        .download {
+
+            display: block;
+
+            text-align: center;
+
+            text-decoration: none;
+
+            color: white;
+
+            font-weight: 700;
+
+            margin-top: 14px;
+
+            padding: 13px;
+
+            border-radius: 12px;
+
+            background:
+                rgba(255,255,255,0.12);
+        }
+
+        .progress {
+
+            display: none;
+
+            margin-top: 20px;
+
+            padding: 15px;
+
+            border-radius: 12px;
+
+            background:
+                rgba(255,255,255,0.08);
+
+            color: #dce8ff;
+        }
+
+        @media(max-width: 600px) {
+
+            body {
+                padding: 25px 14px;
+            }
+
+            .card {
+                padding: 20px;
+            }
+
+            .brand-title {
+                font-size: 29px;
+            }
+        }
+
     </style>
 </head>
 
+
 <body>
 
-<div class="container">
+<div class="wrapper">
 
-    <div class="logo">🎬 Future Shorts AI</div>
+    <div class="brand">
 
-    <div class="subtitle">
-        Turn your idea into an AI video.
+        <h1 class="brand-title">
+            🎬 Future Shorts AI
+        </h1>
+
+        <div class="brand-subtitle">
+            Turn your idea into an AI video.
+        </div>
+
     </div>
+
 
     <div class="card">
 
-        <span class="badge">⚡ Economy Model</span>
+        <div class="badge">
+            ⚡ Economy Model
+        </div>
 
-        <form method="POST">
 
-            <label>Your video idea</label>
+        <form
+            method="POST"
+            id="videoForm"
+        >
+
+            <label>
+                Your video idea
+            </label>
 
             <textarea
                 name="prompt"
@@ -178,105 +397,224 @@ HTML = """
                 placeholder="Example: Futuristic London at night with flying cars above Tower Bridge, cinematic lighting, realistic movement..."
             >{{ prompt }}</textarea>
 
-            <label>Video length</label>
 
-            <select name="duration" id="duration" onchange="updatePrice()">
+            <label>
+                Video length
+            </label>
 
-                <option value="5s"
-                    {% if duration == "5s" %}selected{% endif %}>
+            <select
+                name="duration"
+                id="duration"
+                onchange="updateCost()"
+            >
+
+                <option
+                    value="5"
+                    {% if duration == 5 %}selected{% endif %}
+                >
                     5 seconds
                 </option>
 
-                <option value="10s"
-                    {% if duration == "10s" %}selected{% endif %}>
+                <option
+                    value="10"
+                    {% if duration == 10 %}selected{% endif %}
+                >
                     10 seconds
+                </option>
+
+                <option
+                    value="20"
+                    {% if duration == 20 %}selected{% endif %}
+                >
+                    20 seconds
+                </option>
+
+                <option
+                    value="40"
+                    {% if duration == 40 %}selected{% endif %}
+                >
+                    40 seconds
+                </option>
+
+                <option
+                    value="60"
+                    {% if duration == 60 %}selected{% endif %}
+                >
+                    60 seconds
                 </option>
 
             </select>
 
-            <label>Video format</label>
+
+            <label>
+                Video format
+            </label>
 
             <select name="aspect_ratio">
 
-                <option value="2:3"
-                    {% if aspect_ratio == "2:3" %}selected{% endif %}>
-                    Portrait 2:3
+                <option
+                    value="9:16"
+                    {% if aspect_ratio == "9:16" %}selected{% endif %}
+                >
+                    Portrait 9:16 — TikTok / Shorts / Reels
                 </option>
 
-                <option value="3:2"
-                    {% if aspect_ratio == "3:2" %}selected{% endif %}>
-                    Landscape 3:2
+                <option
+                    value="16:9"
+                    {% if aspect_ratio == "16:9" %}selected{% endif %}
+                >
+                    Landscape 16:9 — YouTube
                 </option>
 
-                <option value="1:1"
-                    {% if aspect_ratio == "1:1" %}selected{% endif %}>
+                <option
+                    value="1:1"
+                    {% if aspect_ratio == "1:1" %}selected{% endif %}
+                >
                     Square 1:1
                 </option>
 
             </select>
 
-            <div class="price">
-                Estimated generation cost:
-                <br>
-                <strong id="price">$0.05</strong>
+
+            <div class="cost-box">
+
+                <div class="cost-label">
+                    Estimated generation cost
+                </div>
+
+                <div
+                    class="cost"
+                    id="cost"
+                >
+                    $0.05
+                </div>
+
+                <div class="cost-note">
+                    Approximate estimate. Actual FAL charges may vary.
+                </div>
+
             </div>
 
-            <div class="small">
+
+            <div class="cost-note">
                 Economy model: Kandinsky 5 Distill
             </div>
 
-            <button type="submit">
+
+            <button
+                type="submit"
+                id="generateButton"
+            >
                 ✨ Generate Video
             </button>
 
+
+            <div
+                class="progress"
+                id="progress"
+            >
+                ⏳ Generating your AI video.
+                Longer videos require several clips,
+                so please keep this page open...
+            </div>
+
         </form>
 
+
         {% if error %}
-            <div class="error">
+
+            <div class="message error">
+                <strong>Error:</strong>
                 {{ error }}
             </div>
+
+        {% endif %}
+
+
+        {% if video_url %}
+
+            <div class="message success">
+
+                <strong>
+                    ✅ Your video is ready
+                </strong>
+
+                <video
+                    controls
+                    playsinline
+                >
+                    <source
+                        src="{{ video_url }}"
+                        type="video/mp4"
+                    >
+                </video>
+
+                <a
+                    class="download"
+                    href="{{ video_url }}"
+                    download
+                >
+                    ⬇ Download Video
+                </a>
+
+            </div>
+
         {% endif %}
 
     </div>
 
-    {% if video_url %}
-
-    <div class="card">
-
-        <h2>🎥 Your Video</h2>
-
-        <video controls autoplay loop>
-            <source src="{{ video_url }}" type="video/mp4">
-        </video>
-
-        <a
-            class="download"
-            href="{{ video_url }}"
-            target="_blank"
-        >
-            ⬇ Open / Download Video
-        </a>
-
-    </div>
-
-    {% endif %}
-
 </div>
+
 
 <script>
 
-function updatePrice() {
+    function updateCost() {
 
-    const duration =
-        document.getElementById("duration").value;
+        const duration =
+            parseInt(
+                document.getElementById(
+                    "duration"
+                ).value
+            );
 
-    const price =
-        duration === "10s" ? "$0.10" : "$0.05";
+        const clips =
+            Math.ceil(duration / 5);
 
-    document.getElementById("price").innerText = price;
-}
+        const estimated =
+            clips * 0.05;
 
-updatePrice();
+        document.getElementById(
+            "cost"
+        ).innerText =
+            "$" + estimated.toFixed(2);
+    }
+
+
+    document
+        .getElementById("videoForm")
+        .addEventListener(
+            "submit",
+            function() {
+
+                const button =
+                    document.getElementById(
+                        "generateButton"
+                    );
+
+                button.disabled = true;
+
+                button.innerText =
+                    "⏳ Generating...";
+
+                document.getElementById(
+                    "progress"
+                ).style.display =
+                    "block";
+            }
+        );
+
+
+    updateCost();
 
 </script>
 
@@ -285,125 +623,462 @@ updatePrice();
 """
 
 
-@app.route("/", methods=["GET", "POST"])
+# ---------------------------------------------------------
+# HELPERS
+# ---------------------------------------------------------
+
+def aspect_ratio_to_size(aspect_ratio):
+
+    if aspect_ratio == "16:9":
+        return "landscape_16_9"
+
+    if aspect_ratio == "1:1":
+        return "square"
+
+    return "portrait_9_16"
+
+
+def extract_video_url(result):
+
+    if not result:
+        return None
+
+    # Most FAL video endpoints return:
+    # {"video": {"url": "..."}}
+
+    video = result.get("video")
+
+    if isinstance(video, dict):
+        url = video.get("url")
+
+        if url:
+            return url
+
+    # Some endpoints may return videos array.
+
+    videos = result.get("videos")
+
+    if isinstance(videos, list) and videos:
+
+        first = videos[0]
+
+        if isinstance(first, dict):
+            return first.get("url")
+
+    return None
+
+
+def generate_clip(prompt, aspect_ratio):
+
+    size = aspect_ratio_to_size(
+        aspect_ratio
+    )
+
+    result = fal_client.subscribe(
+        MODEL_ID,
+
+        arguments={
+            "prompt": prompt,
+            "duration": 5,
+            "aspect_ratio": aspect_ratio,
+        },
+
+        with_logs=True,
+    )
+
+    video_url = extract_video_url(
+        result
+    )
+
+    if not video_url:
+        raise RuntimeError(
+            "FAL did not return a video URL."
+        )
+
+    return video_url
+
+
+def download_video(url, destination):
+
+    response = requests.get(
+        url,
+        stream=True,
+        timeout=180
+    )
+
+    response.raise_for_status()
+
+    with open(
+        destination,
+        "wb"
+    ) as file:
+
+        for chunk in response.iter_content(
+            chunk_size=1024 * 1024
+        ):
+
+            if chunk:
+                file.write(chunk)
+
+
+def combine_videos(video_files, output_file):
+
+    if len(video_files) == 1:
+
+        # No FFmpeg processing required.
+        os.replace(
+            video_files[0],
+            output_file
+        )
+
+        return
+
+
+    concat_file = (
+        OUTPUT_DIR /
+        f"{uuid.uuid4()}_concat.txt"
+    )
+
+
+    with open(
+        concat_file,
+        "w",
+        encoding="utf-8"
+    ) as file:
+
+        for video in video_files:
+
+            safe_path = (
+                str(video)
+                .replace(
+                    "'",
+                    "'\\''"
+                )
+            )
+
+            file.write(
+                f"file '{safe_path}'\\n"
+            )
+
+
+    command = [
+        "ffmpeg",
+        "-y",
+
+        "-f",
+        "concat",
+
+        "-safe",
+        "0",
+
+        "-i",
+        str(concat_file),
+
+        "-c:v",
+        "libx264",
+
+        "-preset",
+        "veryfast",
+
+        "-crf",
+        "23",
+
+        "-c:a",
+        "aac",
+
+        "-movflags",
+        "+faststart",
+
+        str(output_file),
+    ]
+
+
+    process = subprocess.run(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True
+    )
+
+
+    try:
+        concat_file.unlink()
+    except Exception:
+        pass
+
+
+    if process.returncode != 0:
+
+        raise RuntimeError(
+            "Could not combine the generated clips. "
+            "FFmpeg error: "
+            + process.stderr[-1000:]
+        )
+
+
+# ---------------------------------------------------------
+# ROUTES
+# ---------------------------------------------------------
+
+@app.route(
+    "/",
+    methods=[
+        "GET",
+        "POST"
+    ]
+)
 def home():
 
-    video_url = None
     error = None
+    video_url = None
 
     prompt = ""
-    duration = "5s"
-    aspect_ratio = "2:3"
+
+    duration = 5
+
+    aspect_ratio = "9:16"
+
 
     if request.method == "POST":
 
-        prompt = request.form.get(
-            "prompt", ""
-        ).strip()
-
-        duration = request.form.get(
-            "duration", "5s"
+        prompt = (
+            request.form
+            .get(
+                "prompt",
+                ""
+            )
+            .strip()
         )
 
-        aspect_ratio = request.form.get(
-            "aspect_ratio", "2:3"
+
+        try:
+
+            duration = int(
+                request.form.get(
+                    "duration",
+                    "5"
+                )
+            )
+
+        except ValueError:
+
+            duration = 5
+
+
+        aspect_ratio = (
+            request.form.get(
+                "aspect_ratio",
+                "9:16"
+            )
         )
 
-        # Only allow supported values
-        if duration not in ["5s", "10s"]:
-            duration = "5s"
 
-        if aspect_ratio not in [
-            "2:3",
-            "3:2",
+        allowed_durations = [
+            5,
+            10,
+            20,
+            40,
+            60
+        ]
+
+
+        allowed_ratios = [
+            "9:16",
+            "16:9",
             "1:1"
-        ]:
-            aspect_ratio = "2:3"
+        ]
 
-        if not prompt:
 
-            error = "Please enter a video idea."
+        if duration not in allowed_durations:
+
+            error = (
+                "Invalid video duration."
+            )
+
+
+        elif (
+            aspect_ratio
+            not in allowed_ratios
+        ):
+
+            error = (
+                "Invalid video format."
+            )
+
+
+        elif not prompt:
+
+            error = (
+                "Please enter a video idea."
+            )
+
+
+        elif not FAL_KEY:
+
+            error = (
+                "FAL_KEY is not configured "
+                "on the server."
+            )
+
 
         else:
 
             try:
 
-                print(
-                    "Starting Kandinsky generation...",
-                    flush=True
+                number_of_clips = (
+                    duration //
+                    CLIP_LENGTH
                 )
 
-                result = fal_client.subscribe(
-                    MODEL,
-                    arguments={
-                        "prompt": prompt,
-                        "aspect_ratio": aspect_ratio,
-                        "duration": duration
-                    },
-                    with_logs=True,
-                    client_timeout=580
+
+                job_id = str(
+                    uuid.uuid4()
                 )
 
-                print(
-                    "FAL RESULT:",
-                    result,
-                    flush=True
-                )
 
-                video = result.get(
-                    "video", {}
-                )
+                downloaded_files = []
 
-                video_url = video.get(
-                    "url"
-                )
 
-                if not video_url:
+                # Generate several related scenes.
+                for index in range(
+                    number_of_clips
+                ):
 
-                    error = (
-                        "Generation finished, but "
-                        "no video URL was returned."
+                    scene_number = (
+                        index + 1
                     )
 
-            except Exception as e:
+
+                    scene_prompt = f"""
+{prompt}
+
+This is scene {scene_number} of {number_of_clips}
+of one continuous cinematic video.
+
+Maintain the same:
+subject,
+characters,
+clothing,
+environment,
+lighting,
+visual style,
+and overall appearance.
+
+Create natural progression from the previous scene.
+
+Do not add:
+captions,
+subtitles,
+logos,
+watermarks,
+UI elements,
+or text.
+
+Cinematic realistic movement.
+High visual quality.
+"""
+
+
+                    remote_url = (
+                        generate_clip(
+                            scene_prompt,
+                            aspect_ratio
+                        )
+                    )
+
+
+                    local_file = (
+                        OUTPUT_DIR /
+                        f"{job_id}_{index}.mp4"
+                    )
+
+
+                    download_video(
+                        remote_url,
+                        local_file
+                    )
+
+
+                    downloaded_files.append(
+                        local_file
+                    )
+
+
+                final_file = (
+                    OUTPUT_DIR /
+                    f"{job_id}_final.mp4"
+                )
+
+
+                combine_videos(
+                    downloaded_files,
+                    final_file
+                )
+
+
+                # Remove temporary clips.
+                for temp_file in downloaded_files:
+
+                    if temp_file == final_file:
+                        continue
+
+                    try:
+                        temp_file.unlink()
+                    except Exception:
+                        pass
+
+
+                video_url = (
+                    "/video/"
+                    + final_file.name
+                )
+
+
+            except Exception as exc:
 
                 print(
                     "VIDEO GENERATION ERROR:",
+                    repr(exc),
                     flush=True
                 )
 
-                traceback.print_exc()
+                error = str(exc)
 
-                error = str(e)
 
     return render_template_string(
+
         HTML,
-        video_url=video_url,
-        error=error,
+
         prompt=prompt,
+
         duration=duration,
-        aspect_ratio=aspect_ratio
+
+        aspect_ratio=aspect_ratio,
+
+        video_url=video_url,
+
+        error=error,
     )
 
 
-@app.route("/health")
-def health():
+@app.route(
+    "/video/<filename>"
+)
+def video(filename):
 
-    return jsonify({
-        "status": "ok",
-        "model": MODEL
-    })
-
-
-if __name__ == "__main__":
-
-    import os
-
-    port = int(
-        os.environ.get("PORT", 5000)
+    # Prevent arbitrary file access.
+    safe_name = os.path.basename(
+        filename
     )
 
-    app.run(
-        host="0.0.0.0",
-        port=port
+    file_path = (
+        OUTPUT_DIR /
+        safe_name
     )
+
+
+    if not file_path.exists():
+
+        return (
+            "Video not found.",
+        

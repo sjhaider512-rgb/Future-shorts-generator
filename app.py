@@ -1077,8 +1077,19 @@ def video(filename):
     )
 
 
-    if not file_path.exists():
-
+     if not file_path.exists():
         return (
             "Video not found.",
-        
+            404,
+        )
+
+    return send_file(
+        file_path,
+        mimetype="video/mp4",
+        as_attachment=False,
+    )
+
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)

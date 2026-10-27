@@ -188,22 +188,22 @@ def generate_ai_direction(topic, num_scenes):
     
     client = genai.Client(api_key=GEMINI_API_KEY)
     
-    prompt = f"""
-You are an expert documentary film director and scriptwriter.
-Create a documentary script and scene breakdown for the topic: "{topic}".
-You must output exactly {num_scenes} scenes (each scene represents 5 seconds of video).
-
-Return ONLY valid JSON matching this exact structure, with no markdown code blocks around it:
-{{
-  "master_visual_theme": "Consistent visual description of the main characters, clothing, and setting style to be used across all scenes.",
-  "scenes": [
-    {{
-      "visual_prompt": "Detailed cinematic visual prompt for scene 1 with static camera and consistent characters.",
-      "narration": "Narration text spoken by the narrator for this 5 second scene."
-    }}
-  ]
-}
-"""
+    prompt = (
+        "You are an expert documentary film director and scriptwriter.\n"
+        f"Create a documentary script and scene breakdown for the topic: \"{topic}\".\n"
+        f"You must output exactly {num_scenes} scenes (each scene represents 5 seconds of video).\n\n"
+        "Return ONLY valid JSON matching this exact structure, with no markdown code blocks around it:\n"
+        "{\n"
+        ' "master_visual_theme": "Consistent visual description of main characters, clothing, and environment style",\n'
+        ' "scenes": [\n'
+        " {\n"
+        ' "visual_prompt": "Detailed cinematic visual prompt for scene 1 with static camera and consistent characters.",\n'
+        ' "narration": "Narration text spoken by the narrator for this 5 second scene."\n'
+        " }\n"
+        " ]\n"
+        "}"
+    )
+    
     response = client.models.generate_content(
         model='gemini-2.5-flash',
         contents=prompt
@@ -367,7 +367,6 @@ def home():
                 downloaded_files = []
                 narration_texts = []
 
-                # If user entered a Topic, let Gemini AI Director script & design scenes!
                 if topic:
                     ai_plan = generate_ai_direction(topic, number_of_clips)
                     master_theme = ai_plan.get("master_visual_theme", "")
@@ -383,7 +382,6 @@ def home():
                         download_video(remote_url, local_file)
                         downloaded_files.append(local_file)
 
-                        # Frame chaining for consistency
                         last_frame = OUTPUT_DIR / f"{job_id}_frame_{index}.jpg"
                         extract_last_frame(local_file, last_frame)
                         if last_frame.exists():
@@ -392,7 +390,6 @@ def home():
                                 last_frame.unlink(missing_ok=True)
                             except Exception: pass
                 else:
-                    # Manual Prompts fallback
                     if not prompt:
                         raise ValueError("Please provide either a documentary topic or a custom visual prompt.")
                     
@@ -413,14 +410,11 @@ def home():
                                 last_frame.unlink(missing_ok=True)
                             except Exception: pass
 
-                # Build narration audio
                 tts_audio_file = build_single_narrator_audio(narration_texts, job_id)
 
-                # Combine video and audio
                 final_file = OUTPUT_DIR / f"{job_id}_final.mp4"
                 combine_videos_with_audio(downloaded_files, final_file, tts_audio_path=tts_audio_file)
 
-                # Cleanup
                 for temp_file in downloaded_files:
                     try: temp_file.unlink(missing_ok=True)
                     except Exception: pass

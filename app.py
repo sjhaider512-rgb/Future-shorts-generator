@@ -22,7 +22,7 @@ if FAL_KEY:
     os.environ["FAL_KEY"] = FAL_KEY
 
 
-# Current FAL endpoint
+# Current FAL endpoint configured with audio/image support
 MODEL_ID = "fal-ai/kandinsky5/text-to-video/distill"
 
 # We generate 5-second clips and combine them for longer videos
@@ -463,7 +463,7 @@ video {
 
 <div class="brand-subtitle">
 
-Turn your idea into an AI video.
+Turn your idea into an AI video with audio & reference images.
 
 </div>
 
@@ -475,7 +475,7 @@ Turn your idea into an AI video.
 
 <div class="badge">
 
-⚡ Economy Model
+⚡ Economy Model with Audio & Image Support
 
 </div>
 
@@ -661,7 +661,7 @@ Economy model: Kandinsky 5 Distill
     id="progress"
 >
 
-⏳ Generating your AI video.
+⏳ Generating your AI video with sound and effects.
 
 Longer videos require multiple AI clips.
 
@@ -892,7 +892,7 @@ def generate_clip(
         "resolution": resolution,
         "aspect_ratio": api_ratio,
         "duration": "5s",
-        "audio": True, # Enables native sound effects generation if supported
+        "audio": True, # Enables built-in audio generation for sound effects and audio tracks
     }
 
     if image_url:
@@ -1120,14 +1120,12 @@ def home():
 
         if image_file and image_file.filename != "":
             try:
-                # Save temp file locally to upload to fal
                 temp_img_path = Path(tempfile.gettempdir()) / f"{uuid.uuid4()}_{image_file.filename}"
                 image_file.save(temp_img_path)
                 
-                # Upload to FAL storage helper
+                # Upload to FAL storage
                 uploaded_image_url = fal_client.upload(str(temp_img_path))
                 
-                # Clean up local temp file
                 temp_img_path.unlink(missing_ok=True)
             except Exception as img_err:
                 print("IMAGE UPLOAD ERROR:", repr(img_err), flush=True)
@@ -1238,7 +1236,6 @@ Cinematic composition.
 High visual quality.
 """
 
-                    # Only pass the image url for the first clip or all clips depending on model behavior
                     current_image_url = uploaded_image_url if index == 0 else None
 
                     remote_url = generate_clip(

@@ -820,7 +820,7 @@ def fal_resolution(user_ratio):
     if user_ratio == "1:1":
         return "512x512"
 
-    return "512x768"
+    return "768x512"
 
 
 def extract_video_url(result):

@@ -368,5 +368,109 @@ def combine_videos_with_audio(video_files, output_file, tts_audio_path=None):
     except Exception: pass
 
     if process.returncode != 0:
-        raise RuntimeError("FFmpeg combination
+        raise RuntimeError("FFmpeg combination error: " + process.stderr[-1200:])
+
+# =========================================================
+# MAIN ROUTE
+# =========================================================
+
+@app.route("/", methods=["GET", "POST"])
+def home():
+    error, video_url = None, None
+    topic, prompt, voiceover_script = "", "", ""
+    duration, aspect_ratio = 10, "16:9"
+
+    if request.method == "POST":
+        try:
+            topic = request.form.get("topic", "").strip()
+            prompt = request.form.get("prompt", "").strip()
+            voiceover_script = request.form.get("voiceover_script", "").strip()
+            
+            try: duration = int(request.form.get("duration", "10"))
+            except ValueError: duration = 10
+            
+            aspect_ratio = request.form.get("aspect_ratio", "16:9")
+
+            if not FAL_KEY:
+                error = "FAL_KEY is not configured on the server."
+            else:
+                number_of_clips = max(1, duration // CLIP_LENGTH)
+                job_id = str(uuid.uuid4())
+                downloaded_files = []
+                narration_texts = []
+
+                if topic:
+                    ai_plan = generate_ai_direction(topic, number_of_clips)
+                    master_theme = ai_plan.get("master_visual_theme", "")
+                    scenes = ai_plan.get("scenes", [])
+                    
+                    current_image_url = None
+                    for index, scene in enumerate(scenes[:number_of_clips]):
+                        scene_visual = f"Static medium shot, fixed camera. {master_theme}. {scene.get('visual_prompt', '')}"
+                        narration_texts.append(scene.get("narration", ""))
+                        
+                        remote_url = generate_clip(scene_visual, aspect_ratio, image_url=current_image_url)
+                        local_file = OUTPUT_DIR / f"{job_id}_{index}.mp4"
+                        download_video(remote_url, local_file)
+                        downloaded_files.append(local_file)
+
+                        last_frame = OUTPUT_DIR / f"{job_id}_frame_{index}.jpg"
+                        extract_last_frame(local_file, last_frame)
+                        if last_frame.exists():
+                            try:
+                                current_image_url = fal_client.upload(str(last_frame))
+                                last_frame.unlink(missing_ok=True)
+                            except Exception: pass
+                else:
+                    if not prompt:
+                        raise ValueError("Please provide either a documentary topic or a custom visual prompt.")
+                    
+                    narration_texts = [voiceover_script] if voiceover_script else [""]
+                    current_image_url = None
+                    for index in range(number_of_clips):
+                        scene_prompt = f"Static medium shot, fixed camera. {prompt}\n\nScene {index+1} of {number_of_clips}, maintaining strict character and scene continuity."
+                        remote_url = generate_clip(scene_prompt, aspect_ratio, image_url=current_image_url)
+                        local_file = OUTPUT_DIR / f"{job_id}_{index}.mp4"
+                        download_video(remote_url, local_file)
+                        downloaded_files.append(local_file)
+
+                        last_frame = OUTPUT_DIR / f"{job_id}_frame_{index}.jpg"
+                        extract_last_frame(local_file, last_frame)
+                        if last_frame.exists():
+                            try:
+                                current_image_url = fal_client.upload(str(last_frame))
+                                last_frame.unlink(missing_ok=True)
+                            except Exception: pass
+
+                tts_audio_file = build_single_narrator_audio(narration_texts, job_id)
+
+                final_file = OUTPUT_DIR / f"{job_id}_final.mp4"
+                combine_videos_with_audio(downloaded_files, final_file, tts_audio_path=tts_audio_file)
+
+                for temp_file in downloaded_files:
+                    try: temp_file.unlink(missing_ok=True)
+                    except Exception: pass
+                if tts_audio_file and tts_audio_file.exists():
+                    try: tts_audio_file.unlink(missing_ok=True)
+                    except Exception: pass
+
+                video_url = "/video/" + final_file.name
+        except Exception as exc:
+            print("ERROR:", repr(exc), flush=True)
+            error = str(exc)
+
+    return render_template_string(
+        HTML_TEMPLATE, topic=topic, prompt=prompt, voiceover_script=voiceover_script,
+        duration=duration, aspect_ratio=aspect_ratio, video_url=video_url, error=error
+    )
+
+@app.route("/video/<filename>")
+def video(filename):
+    file_path = OUTPUT_DIR / os.path.basename(filename)
+    if not file_path.exists(): return "Video not found.", 404
+    return send_file(file_path, mimetype="video/mp4", as_attachment=False)
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
 

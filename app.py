@@ -22,7 +22,7 @@ if FAL_KEY:
     os.environ["FAL_KEY"] = FAL_KEY
 
 
-# Correct current FAL endpoint
+# Current FAL endpoint
 MODEL_ID = "fal-ai/kandinsky5/text-to-video/distill"
 
 # We generate 5-second clips and combine them for longer videos
@@ -191,7 +191,8 @@ label {
 
 
 textarea,
-select {
+select,
+input[type="file"] {
 
     width: 100%;
 
@@ -214,6 +215,12 @@ select {
 }
 
 
+input[type="file"] {
+    padding: 10px;
+    cursor: pointer;
+}
+
+
 textarea {
 
     min-height: 145px;
@@ -223,7 +230,8 @@ textarea {
 
 
 textarea:focus,
-select:focus {
+select:focus,
+input[type="file"]:focus {
 
     border-color: #48d7ff;
 
@@ -475,6 +483,7 @@ Turn your idea into an AI video.
 <form
     method="POST"
     id="videoForm"
+    enctype="multipart/form-data"
 >
 
 
@@ -490,6 +499,20 @@ Your video idea
     required
     placeholder="Example: Futuristic London at night with flying cars above Tower Bridge, cinematic lighting, realistic movement..."
 >{{ prompt }}</textarea>
+
+
+<label>
+
+Reference Image (Optional)
+
+</label>
+
+
+<input
+    type="file"
+    name="reference_image"
+    accept="image/*"
+>
 
 
 <label>
@@ -798,11 +821,6 @@ updateCost();
 
 def fal_aspect_ratio(user_ratio):
 
-    # Kandinsky Distill currently supports:
-    # 2:3 portrait
-    # 3:2 landscape
-    # 1:1 square
-
     if user_ratio == "16:9":
         return "3:2"
 
@@ -857,43 +875,41 @@ def extract_video_url(result):
 
 def generate_clip(
     prompt,
-    user_aspect_ratio
+    user_aspect_ratio,
+    image_url=None
 ):
-
 
     api_ratio = fal_aspect_ratio(
         user_aspect_ratio
     )
 
-
     resolution = fal_resolution(
         user_aspect_ratio
     )
 
+    arguments = {
+        "prompt": prompt,
+        "resolution": resolution,
+        "aspect_ratio": api_ratio,
+        "duration": "5s",
+        "audio": True, # Enables native sound effects generation if supported
+    }
+
+    if image_url:
+        arguments["image_url"] = image_url
 
     result = fal_client.subscribe(
 
         MODEL_ID,
 
-        arguments={
-
-            "prompt": prompt,
-
-            "resolution": resolution,
-
-            "aspect_ratio": api_ratio,
-
-            "duration": "5s",
-        },
+        arguments=arguments,
 
         with_logs=True,
     )
 
-
     video_url = extract_video_url(
         result
     )
-
 
     if not video_url:
 
@@ -902,7 +918,6 @@ def generate_clip(
             "did not return a video URL."
         )
 
-
     return video_url
 
 
@@ -910,7 +925,6 @@ def download_video(
     url,
     destination
 ):
-
 
     response = requests.get(
 
@@ -921,20 +935,16 @@ def download_video(
         timeout=300
     )
 
-
     response.raise_for_status()
-
 
     with open(
         destination,
         "wb"
     ) as file:
 
-
         for chunk in response.iter_content(
             chunk_size=1024 * 1024
         ):
-
 
             if chunk:
 
@@ -946,24 +956,19 @@ def combine_videos(
     output_file
 ):
 
-
     if len(video_files) == 1:
-
 
         os.replace(
             video_files[0],
             output_file
         )
 
-
         return
-
 
     concat_file = (
         OUTPUT_DIR /
         f"{uuid.uuid4()}_concat.txt"
     )
-
 
     with open(
         concat_file,
@@ -971,9 +976,7 @@ def combine_videos(
         encoding="utf-8"
     ) as file:
 
-
         for video in video_files:
-
 
             safe_path = (
                 str(video)
@@ -983,11 +986,9 @@ def combine_videos(
                 )
             )
 
-
             file.write(
                 f"file '{safe_path}'\\n"
             )
-
 
     command = [
 
@@ -1022,7 +1023,6 @@ def combine_videos(
         str(output_file),
     ]
 
-
     process = subprocess.run(
 
         command,
@@ -1034,7 +1034,6 @@ def combine_videos(
         text=True
     )
 
-
     try:
 
         concat_file.unlink()
@@ -1043,9 +1042,7 @@ def combine_videos(
 
         pass
 
-
     if process.returncode != 0:
-
 
         raise RuntimeError(
 
@@ -1071,7 +1068,6 @@ def combine_videos(
 
 def home():
 
-
     error = None
 
     video_url = None
@@ -1082,9 +1078,9 @@ def home():
 
     aspect_ratio = "9:16"
 
+    uploaded_image_url = None
 
     if request.method == "POST":
-
 
         prompt = (
             request.form
@@ -1095,9 +1091,7 @@ def home():
             .strip()
         )
 
-
         try:
-
 
             duration = int(
 
@@ -1108,12 +1102,9 @@ def home():
 
             )
 
-
         except ValueError:
 
-
             duration = 5
-
 
         aspect_ratio = (
 
@@ -1124,6 +1115,22 @@ def home():
 
         )
 
+        # Handle reference image upload
+        image_file = request.files.get("reference_image")
+
+        if image_file and image_file.filename != "":
+            try:
+                # Save temp file locally to upload to fal
+                temp_img_path = Path(tempfile.gettempdir()) / f"{uuid.uuid4()}_{image_file.filename}"
+                image_file.save(temp_img_path)
+                
+                # Upload to FAL storage helper
+                uploaded_image_url = fal_client.upload(str(temp_img_path))
+                
+                # Clean up local temp file
+                temp_img_path.unlink(missing_ok=True)
+            except Exception as img_err:
+                print("IMAGE UPLOAD ERROR:", repr(img_err), flush=True)
 
         allowed_durations = [
 
@@ -1135,7 +1142,6 @@ def home():
 
         ]
 
-
         allowed_ratios = [
 
             "9:16",
@@ -1144,33 +1150,25 @@ def home():
 
         ]
 
-
         if duration not in allowed_durations:
-
 
             error = (
                 "Invalid video duration."
             )
 
-
         elif aspect_ratio not in allowed_ratios:
-
 
             error = (
                 "Invalid video format."
             )
 
-
         elif not prompt:
-
 
             error = (
                 "Please enter a video idea."
             )
 
-
         elif not FAL_KEY:
-
 
             error = (
 
@@ -1179,36 +1177,28 @@ def home():
 
             )
 
-
         else:
 
-
             try:
-
 
                 number_of_clips = (
                     duration //
                     CLIP_LENGTH
                 )
 
-
                 job_id = str(
                     uuid.uuid4()
                 )
 
-
                 downloaded_files = []
-
 
                 for index in range(
                     number_of_clips
                 ):
 
-
                     scene_number = (
                         index + 1
                     )
-
 
                     scene_prompt = f"""
 {prompt}
@@ -1248,15 +1238,18 @@ Cinematic composition.
 High visual quality.
 """
 
+                    # Only pass the image url for the first clip or all clips depending on model behavior
+                    current_image_url = uploaded_image_url if index == 0 else None
 
                     remote_url = generate_clip(
 
                         scene_prompt,
 
-                        aspect_ratio
+                        aspect_ratio,
+
+                        image_url=current_image_url
 
                     )
-
 
                     local_file = (
 
@@ -1266,7 +1259,6 @@ High visual quality.
 
                     )
 
-
                     download_video(
 
                         remote_url,
@@ -1275,11 +1267,9 @@ High visual quality.
 
                     )
 
-
                     downloaded_files.append(
                         local_file
                     )
-
 
                 final_file = (
 
@@ -1289,7 +1279,6 @@ High visual quality.
 
                 )
 
-
                 combine_videos(
 
                     downloaded_files,
@@ -1298,14 +1287,11 @@ High visual quality.
 
                 )
 
-
                 for temp_file in downloaded_files:
-
 
                     if temp_file == final_file:
 
                         continue
-
 
                     try:
 
@@ -1315,7 +1301,6 @@ High visual quality.
 
                         pass
 
-
                 video_url = (
 
                     "/video/" +
@@ -1324,9 +1309,7 @@ High visual quality.
 
                 )
 
-
             except Exception as exc:
-
 
                 print(
 
@@ -1338,9 +1321,7 @@ High visual quality.
 
                 )
 
-
                 error = str(exc)
-
 
     return render_template_string(
 
@@ -1370,20 +1351,16 @@ High visual quality.
 
 def video(filename):
 
-
     safe_name = os.path.basename(
         filename
     )
-
 
     file_path = (
         OUTPUT_DIR /
         safe_name
     )
 
-
     if not file_path.exists():
-
 
         return (
 
@@ -1392,7 +1369,6 @@ def video(filename):
             404
 
         )
-
 
     return send_file(
 
@@ -1412,7 +1388,6 @@ def video(filename):
 
 if __name__ == "__main__":
 
-
     port = int(
 
         os.environ.get(
@@ -1422,7 +1397,6 @@ if __name__ == "__main__":
 
     )
 
-
     app.run(
 
         host="0.0.0.0",
@@ -1430,3 +1404,4 @@ if __name__ == "__main__":
         port=port
 
     )
+

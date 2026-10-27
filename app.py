@@ -92,7 +92,7 @@ video { width: 100%; margin-top: 18px; border-radius: 15px; background: black; }
 .download { display: block; text-align: center; text-decoration: none; color: white; font-weight: 700; margin-top: 14px; padding: 13px; border-radius: 12px; background: rgba(255,255,255,0.12); }
 .progress { display: none; margin-top: 20px; padding: 18px; border-radius: 12px; background: rgba(255,255,255,0.08); color: #dce8ff; line-height: 1.6; }
 .progress-bar-container { width: 100%; background: rgba(255,255,255,0.15); border-radius: 10px; height: 12px; margin-top: 12px; overflow: hidden; }
-.progress-bar { width: 0%; height: 100%; background: linear-gradient(90deg, #21d4fd, #7868ff); border-radius: 10px; transition: width 0.3s ease; }
+.progress-bar { width: 0%; height: 100%; background: linear-gradient(90deg, #21d4fd, #7868ff); border-radius: 10px; transition: width 0.4s ease; }
 .tip { font-size: 12px; color: #9bb1dd; margin-top: 4px; }
 </style>
 </head>
@@ -139,8 +139,8 @@ video { width: 100%; margin-top: 18px; border-radius: 15px; background: black; }
 <button type="submit" id="generateButton">✨ Direct & Generate Documentary Video</button>
 
 <div class="progress" id="progress">
-⏳ <strong id="progressStatus">Initializing AI Director...</strong> (<span id="progressPercent">0%</span> completed)<br>
-<span id="progressSubtext">Analyzing topic and writing script breakdown...</span>
+⏳ <strong id="progressStatus">AI Director at Work...</strong> (<span id="progressPercent">0%</span> completed)<br>
+<span id="progressSubtext">Generating your cinematic documentary workflow...</span>
 <div class="progress-bar-container">
 <div class="progress-bar" id="progressBar"></div>
 </div>
@@ -173,37 +173,33 @@ function updateCost() {
 
 document.getElementById("videoForm").addEventListener("submit", function() {
     document.getElementById("generateButton").disabled = true;
-    document.getElementById("generateButton").innerText = "⏳ AI Director at Work...";
+    document.getElementById("generateButton").innerText = "⏳ Generating Masterpiece...";
     document.getElementById("progress").style.display = "block";
     
-    let percent = 5;
+    let percent = 0;
     const progressBar = document.getElementById("progressBar");
     const progressPercent = document.getElementById("progressPercent");
     const progressStatus = document.getElementById("progressStatus");
     const progressSubtext = document.getElementById("progressSubtext");
     
-    const steps = [
-        { at: 20, main: "Gemini AI Director Planning", sub: "Writing script and scene breakdowns..." },
-        { at: 45, main: "Rendering Scene 1", sub: "Generating initial cinematic frame via FAL AI..." },
-        { at: 70, main: "Rendering Scene 2", sub: "Applying frame-chaining continuity..." },
-        { at: 88, main: "Synthesizing Narration", sub: "Recording professional voiceover with gTTS..." },
-        { at: 96, main: "Stitching Final Production", sub: "Combining clips and audio with FFmpeg..." }
-    ];
-    
-    const interval = setInterval(() => {
-        if (percent < 98) {
+    const timer = setInterval(() => {
+        if (percent < 95) {
             percent += 1;
             progressBar.style.width = percent + "%";
             progressPercent.innerText = percent + "%";
             
-            steps.forEach(step => {
-                if (percent === step.at) {
-                    progressStatus.innerText = step.main;
-                    progressSubtext.innerText = step.sub;
-                }
-            });
+            if (percent === 15) {
+                progressStatus.innerText = "Gemini AI Director Planning";
+                progressSubtext.innerText = "Structuring script and visual keyframes...";
+            } else if (percent === 40) {
+                progressStatus.innerText = "Rendering Video Clips";
+                progressSubtext.innerText = "Producing continuous frames via FAL AI...";
+            } else if (percent === 75) {
+                progressStatus.innerText = "Synthesizing Audio & Stitching";
+                progressSubtext.innerText = "Recording voiceover and assembling with FFmpeg...";
+            }
         }
-    }, 350);
+    }, 450);
 });
 
 updateCost();

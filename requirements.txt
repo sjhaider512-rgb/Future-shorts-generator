@@ -3,3 +3,4 @@ fal-client
 requests
 gunicorn
 gTTS
+google-genai

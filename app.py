@@ -6,6 +6,7 @@ from pathlib import Path
 
 import requests
 import fal_client
+from gtts import gTTS
 from flask import Flask, request, render_template_string, send_file
 
 
@@ -223,7 +224,7 @@ input[type="file"] {
 
 textarea {
 
-    min-height: 145px;
+    min-height: 110px;
 
     resize: vertical;
 }
@@ -463,7 +464,7 @@ video {
 
 <div class="brand-subtitle">
 
-Turn your story into an AI video with audio & dual reference images.
+Turn your story into an AI video with dual characters & free voiceover.
 
 </div>
 
@@ -475,7 +476,7 @@ Turn your story into an AI video with audio & dual reference images.
 
 <div class="badge">
 
-⚡ Story Mode: Zainab & Masooma Support
+⚡ Story Mode: Dual Images & Free Voiceover
 
 </div>
 
@@ -489,7 +490,7 @@ Turn your story into an AI video with audio & dual reference images.
 
 <label>
 
-Your video idea / story
+Your video visual prompt
 
 </label>
 
@@ -497,8 +498,21 @@ Your video idea / story
 <textarea
     name="prompt"
     required
-    placeholder="Example: In the Rainbow Kingdom lived a little princess named Zainab, with her sister Masooma..."
+    placeholder="Example: In the Rainbow Kingdom, princess Zainab and her sister Masooma walking together happily..."
 >{{ prompt }}</textarea>
+
+
+<label>
+
+Voiceover Script / Dialogue (Optional - Free TTS)
+
+</label>
+
+
+<textarea
+    name="voiceover_script"
+    placeholder="Example: Once upon a time in the Rainbow Kingdom, Zainab and Masooma went on a magical adventure..."
+>{{ voiceover_script }}</textarea>
 
 
 <label>
@@ -653,19 +667,12 @@ Approximate estimate. Actual FAL charges may vary.
 </div>
 
 
-<div class="cost-note">
-
-Economy model: Kandinsky 5 Distill with Audio
-
-</div>
-
-
 <button
     type="submit"
     id="generateButton"
 >
 
-✨ Generate Sister Story Video
+✨ Generate Story with Voiceover
 
 </button>
 
@@ -675,9 +682,7 @@ Economy model: Kandinsky 5 Distill with Audio
     id="progress"
 >
 
-⏳ Generating your sisters' story video with sound and characters.
-
-Longer videos require multiple AI clips.
+⏳ Generating video clips and synthesizing voiceover...
 
 Please keep this page open...
 
@@ -710,7 +715,7 @@ Please keep this page open...
 
 <strong>
 
-✅ Your video is ready
+✅ Your story video is ready
 
 </strong>
 
@@ -965,106 +970,69 @@ def download_video(
                 file.write(chunk)
 
 
-def combine_videos(
+def combine_videos_with_audio(
     video_files,
-    output_file
+    output_file,
+    tts_audio_path=None
 ):
 
+    temp_combined = OUTPUT_DIR / f"{uuid.uuid4()}_raw.mp4"
+
     if len(video_files) == 1:
+        os.replace(video_files[0], temp_combined)
+    else:
+        concat_file = OUTPUT_DIR / f"{uuid.uuid4()}_concat.txt"
+        with open(concat_file, "w", encoding="utf-8") as file:
+            for video in video_files:
+                safe_path = str(video).replace("'", "'\\''")
+                file.write(f"file '{safe_path}'\n")
 
-        os.replace(
-            video_files[0],
-            output_file
-        )
+        concat_cmd = [
+            "ffmpeg", "-y", "-f", "concat", "-safe", "0",
+            "-i", str(concat_file), "-c", "copy", str(temp_combined)
+        ]
+        subprocess.run(concat_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        try:
+            concat_file.unlink()
+        except Exception:
+            pass
 
-        return
+    if tts_audio_path and Path(tts_audio_path).exists():
+        command = [
+            "ffmpeg", "-y",
+            "-i", str(temp_combined),
+            "-i", str(tts_audio_path),
+            "-filter_complex", "[0:a][1:a]amix=inputs=2:duration=first[a]",
+            "-map", "0:v:0",
+            "-map", "[a]",
+            "-c:v", "libx264",
+            "-preset", "veryfast",
+            "-crf", "23",
+            "-c:a", "aac",
+            "-movflags", "+faststart",
+            str(output_file)
+        ]
+    else:
+        command = [
+            "ffmpeg", "-y",
+            "-i", str(temp_combined),
+            "-c:v", "libx264",
+            "-preset", "veryfast",
+            "-crf", "23",
+            "-c:a", "aac",
+            "-movflags", "+faststart",
+            str(output_file)
+        ]
 
-    concat_file = (
-        OUTPUT_DIR /
-        f"{uuid.uuid4()}_concat.txt"
-    )
-
-    with open(
-        concat_file,
-        "w",
-        encoding="utf-8"
-    ) as file:
-
-        for video in video_files:
-
-            safe_path = (
-                str(video)
-                .replace(
-                    "'",
-                    "'\\''"
-                )
-            )
-
-            file.write(
-                f"file '{safe_path}'\\n"
-            )
-
-    command = [
-
-        "ffmpeg",
-
-        "-y",
-
-        "-f",
-        "concat",
-
-        "-safe",
-        "0",
-
-        "-i",
-        str(concat_file),
-
-        "-c:v",
-        "libx264",
-
-        "-preset",
-        "veryfast",
-
-        "-crf",
-        "23",
-
-        "-c:a",
-        "aac",
-
-        "-movflags",
-        "+faststart",
-
-        str(output_file),
-    ]
-
-    process = subprocess.run(
-
-        command,
-
-        stdout=subprocess.PIPE,
-
-        stderr=subprocess.PIPE,
-
-        text=True
-    )
+    process = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
     try:
-
-        concat_file.unlink()
-
+        temp_combined.unlink(missing_ok=True)
     except Exception:
-
         pass
 
     if process.returncode != 0:
-
-        raise RuntimeError(
-
-            "Could not combine generated clips. "
-            "FFmpeg error: "
-            + process.stderr[-1200:]
-
-        )
+        raise RuntimeError("Could not combine video and voiceover. FFmpeg error: " + process.stderr[-1200:])
 
 
 # =========================================================
@@ -1083,13 +1051,10 @@ def combine_videos(
 def home():
 
     error = None
-
     video_url = None
-
     prompt = ""
-
+    voiceover_script = ""
     duration = 5
-
     aspect_ratio = "9:16"
 
     zainab_url = None
@@ -1097,40 +1062,16 @@ def home():
 
     if request.method == "POST":
 
-        prompt = (
-            request.form
-            .get(
-                "prompt",
-                ""
-            )
-            .strip()
-        )
+        prompt = request.form.get("prompt", "").strip()
+        voiceover_script = request.form.get("voiceover_script", "").strip()
 
         try:
-
-            duration = int(
-
-                request.form.get(
-                    "duration",
-                    "5"
-                )
-
-            )
-
+            duration = int(request.form.get("duration", "5"))
         except ValueError:
-
             duration = 5
 
-        aspect_ratio = (
+        aspect_ratio = request.form.get("aspect_ratio", "9:16")
 
-            request.form.get(
-                "aspect_ratio",
-                "9:16"
-            )
-
-        )
-
-        # Handle Zainab's reference image
         file_zainab = request.files.get("image_zainab")
         if file_zainab and file_zainab.filename != "":
             try:
@@ -1141,7 +1082,6 @@ def home():
             except Exception as e1:
                 print("ZAINAB IMAGE ERROR:", repr(e1), flush=True)
 
-        # Handle Masooma's reference image
         file_masooma = request.files.get("image_masooma")
         if file_masooma and file_masooma.filename != "":
             try:
@@ -1152,211 +1092,87 @@ def home():
             except Exception as e2:
                 print("MASOOMA IMAGE ERROR:", repr(e2), flush=True)
 
-        allowed_durations = [
-
-            5,
-            10,
-            20,
-            40,
-            60
-
-        ]
-
-        allowed_ratios = [
-
-            "9:16",
-            "16:9",
-            "1:1"
-
-        ]
+        allowed_durations = [5, 10, 20, 40, 60]
+        allowed_ratios = ["9:16", "16:9", "1:1"]
 
         if duration not in allowed_durations:
-
-            error = (
-                "Invalid video duration."
-            )
-
+            error = "Invalid video duration."
         elif aspect_ratio not in allowed_ratios:
-
-            error = (
-                "Invalid video format."
-            )
-
+            error = "Invalid video format."
         elif not prompt:
-
-            error = (
-                "Please enter a video idea."
-            )
-
+            error = "Please enter a video idea."
         elif not FAL_KEY:
-
-            error = (
-
-                "FAL_KEY is not configured "
-                "on the server."
-
-            )
-
+            error = "FAL_KEY is not configured on the server."
         else:
-
             try:
-
-                number_of_clips = (
-                    duration //
-                    CLIP_LENGTH
-                )
-
-                job_id = str(
-                    uuid.uuid4()
-                )
-
+                number_of_clips = duration // CLIP_LENGTH
+                job_id = str(uuid.uuid4())
                 downloaded_files = []
 
-                for index in range(
-                    number_of_clips
-                ):
-
-                    scene_number = (
-                        index + 1
-                    )
-
+                for index in range(number_of_clips):
+                    scene_number = index + 1
                     scene_prompt = f"""
 {prompt}
 
 This is scene {scene_number} of {number_of_clips}
-of one continuous cinematic video featuring Zainab and Masooma.
+of one continuous story featuring Zainab and Masooma.
 
-Maintain consistent subject appearance,
-characters,
-clothing,
-environment,
-lighting,
-camera style,
-colour palette,
-and visual style.
-
-The action should naturally progress
-through the overall story.
-
-Do not add any text.
-
-Do not add captions.
-
-Do not add subtitles.
-
-Do not add logos.
-
-Do not add watermarks.
-
-Do not add UI elements.
-
-Smooth realistic movement.
-
-Cinematic composition.
-
-High visual quality.
+Maintain consistent subject appearance, characters,
+clothing, environment, and visual style.
+Do not add any text, captions, subtitles, or logos.
+Smooth realistic movement, high visual quality.
 """
 
-                    # For the first clip or alternating clips, you can guide with Zainab's or Masooma's photo
-                    # We default to Zainab's image if available for the first clip
                     current_image_url = zainab_url if (index % 2 == 0 and zainab_url) else (masooma_url if masooma_url else zainab_url)
 
                     remote_url = generate_clip(
-
                         scene_prompt,
-
                         aspect_ratio,
-
                         image_url=current_image_url
-
                     )
 
-                    local_file = (
+                    local_file = OUTPUT_DIR / f"{job_id}_{index}.mp4"
+                    download_video(remote_url, local_file)
+                    downloaded_files.append(local_file)
 
-                        OUTPUT_DIR /
+                tts_audio_file = None
+                if voiceover_script:
+                    try:
+                        tts = gTTS(text=voiceover_script, lang='en', slow=False)
+                        tts_audio_file = OUTPUT_DIR / f"{job_id}_voice.mp3"
+                        tts.save(str(tts_audio_file))
+                    except Exception as tts_err:
+                        print("TTS GENERATION ERROR:", repr(tts_err), flush=True)
 
-                        f"{job_id}_{index}.mp4"
-
-                    )
-
-                    download_video(
-
-                        remote_url,
-
-                        local_file
-
-                    )
-
-                    downloaded_files.append(
-                        local_file
-                    )
-
-                final_file = (
-
-                    OUTPUT_DIR /
-
-                    f"{job_id}_final.mp4"
-
-                )
-
-                combine_videos(
-
-                    downloaded_files,
-
-                    final_file
-
-                )
+                final_file = OUTPUT_DIR / f"{job_id}_final.mp4"
+                combine_videos_with_audio(downloaded_files, final_file, tts_audio_path=tts_audio_file)
 
                 for temp_file in downloaded_files:
-
-                    if temp_file == final_file:
-
-                        continue
-
                     try:
-
                         temp_file.unlink()
-
                     except Exception:
-
                         pass
 
-                video_url = (
+                if tts_audio_file and tts_audio_file.exists():
+                    try:
+                        tts_audio_file.unlink()
+                    except Exception:
+                        pass
 
-                    "/video/" +
-
-                    final_file.name
-
-                )
+                video_url = "/video/" + final_file.name
 
             except Exception as exc:
-
-                print(
-
-                    "VIDEO GENERATION ERROR:",
-
-                    repr(exc),
-
-                    flush=True
-
-                )
-
+                print("VIDEO GENERATION ERROR:", repr(exc), flush=True)
                 error = str(exc)
 
     return render_template_string(
-
         HTML,
-
         prompt=prompt,
-
+        voiceover_script=voiceover_script,
         duration=duration,
-
         aspect_ratio=aspect_ratio,
-
         video_url=video_url,
-
         error=error,
-
     )
 
 
@@ -1365,40 +1181,15 @@ High visual quality.
 # =========================================================
 
 
-@app.route(
-    "/video/<filename>"
-)
-
+@app.route("/video/<filename>")
 def video(filename):
-
-    safe_name = os.path.basename(
-        filename
-    )
-
-    file_path = (
-        OUTPUT_DIR /
-        safe_name
-    )
+    safe_name = os.path.basename(filename)
+    file_path = OUTPUT_DIR / safe_name
 
     if not file_path.exists():
+        return "Video not found.", 404
 
-        return (
-
-            "Video not found.",
-
-            404
-
-        )
-
-    return send_file(
-
-        file_path,
-
-        mimetype="video/mp4",
-
-        as_attachment=False
-
-    )
+    return send_file(file_path, mimetype="video/mp4", as_attachment=False)
 
 
 # =========================================================
@@ -1407,21 +1198,6 @@ def video(filename):
 
 
 if __name__ == "__main__":
-
-    port = int(
-
-        os.environ.get(
-            "PORT",
-            10000
-        )
-
-    )
-
-    app.run(
-
-        host="0.0.0.0",
-
-        port=port
-
-    )
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
 

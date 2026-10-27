@@ -90,7 +90,7 @@ button:disabled { opacity: 0.6; cursor: wait; }
 .success { border: 1px solid #43e0b3; }
 video { width: 100%; margin-top: 18px; border-radius: 15px; background: black; }
 .download { display: block; text-align: center; text-decoration: none; color: white; font-weight: 700; margin-top: 14px; padding: 13px; border-radius: 12px; background: rgba(255,255,255,0.12); }
-.progress { display: none; margin-top: 20px; padding: 15px; border-radius: 12px; background: rgba(255,255,255,0.08); color: #dce8ff; }
+.progress { display: none; margin-top: 20px; padding: 18px; border-radius: 12px; background: rgba(255,255,255,0.08); color: #dce8ff; line-height: 1.6; }
 .tip { font-size: 12px; color: #9bb1dd; margin-top: 4px; }
 </style>
 </head>
@@ -137,8 +137,8 @@ video { width: 100%; margin-top: 18px; border-radius: 15px; background: black; }
 <button type="submit" id="generateButton">✨ Direct & Generate Documentary Video</button>
 
 <div class="progress" id="progress">
-⏳ Gemini AI is writing script & scene breakdowns, rendering consistent video clips, and recording voiceover...<br>
-Please keep this browser window active.
+⏳ <strong id="progressStatus">Initializing AI Director...</strong><br>
+<span id="progressSubtext">Analyzing topic and writing script breakdown...</span>
 </div>
 
 </form>
@@ -170,6 +170,22 @@ document.getElementById("videoForm").addEventListener("submit", function() {
     document.getElementById("generateButton").disabled = true;
     document.getElementById("generateButton").innerText = "⏳ AI Director at Work...";
     document.getElementById("progress").style.display = "block";
+    
+    // Simulated dynamic progress messages
+    const statuses = [
+        { main: "Gemini AI Director Planning...", sub: "Writing script and scene breakdowns..." },
+        { main: "Rendering Scene 1 of 2...", sub: "Generating initial cinematic frame..." },
+        { main: "Rendering Scene 2 of 2...", sub: "Applying frame-chaining continuity..." },
+        { main: "Synthesizing Narration...", sub: "Recording professional voiceover..." },
+        { main: "Stitching Final Production...", sub: "Combining clips and audio with FFmpeg..." }
+    ];
+    
+    let idx = 0;
+    setInterval(() => {
+        idx = (idx + 1) % statuses.length;
+        document.getElementById("progressStatus").innerText = statuses[idx].main;
+        document.getElementById("progressSubtext").innerText = statuses[idx].sub;
+    }, 4000);
 });
 
 updateCost();
@@ -223,12 +239,10 @@ def generate_ai_direction(topic, num_scenes):
 # =========================================================
 
 def fal_aspect_ratio(user_ratio):
-    if user_ratio == "16:9": return "3:2"
-    return "2:3"
+    return "3:2"
 
 def fal_resolution(user_ratio):
-    if user_ratio == "16:9": return "768x512"
-    return "512x768"
+    return "768x512"
 
 def extract_video_url(result):
     if not result: return None

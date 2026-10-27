@@ -1,4 +1,5 @@
 import os
+import re
 import uuid
 import tempfile
 import subprocess
@@ -12,6 +13,10 @@ from flask import Flask, request, render_template_string, send_file
 
 app = Flask(__name__)
 
+# =========================================================
+# CONFIGURATION
+# =========================================================
+
 FAL_KEY = os.environ.get("FAL_KEY")
 if FAL_KEY:
     os.environ["FAL_KEY"] = FAL_KEY
@@ -21,13 +26,26 @@ CLIP_LENGTH = 5
 OUTPUT_DIR = Path(tempfile.gettempdir()) / "future_shorts"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
+# Voice configuration for gTTS multi-speaker simulation
+# Different Google Translate TLDs produce distinct accents/pitch characteristics
+VOICE_PROFILES = {
+    "narrator": {"lang": "en", "tld": "com", "pitch": "1.0"}, # Deep US Narrator
+    "zainab": {"lang": "en", "tld": "co.uk", "pitch": "1.15"}, # Higher British accent
+    "masooma": {"lang": "en", "tld": "ca", "pitch": "0.92"}, # Warm Canadian accent
+    "default": {"lang": "en", "tld": "com", "pitch": "1.0"}
+}
+
+# =========================================================
+# HTML TEMPLATE
+# =========================================================
+
 HTML = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Future Shorts AI</title>
+<title>Future Shorts AI — Story Studio</title>
 <style>
 * { box-sizing: border-box; }
 body {
@@ -37,7 +55,7 @@ body {
     background: radial-gradient(circle at top left, #17346d 0%, #08142e 42%, #050b19 100%);
     padding: 45px 20px;
 }
-.wrapper { width: 100%; max-width: 720px; margin: auto; }
+.wrapper { width: 100%; max-width: 760px; margin: auto; }
 .brand { margin-bottom: 25px; }
 .brand-title { font-size: 34px; font-weight: 800; margin: 0; }
 .brand-subtitle { color: #b8c6e8; margin-top: 7px; font-size: 15px; }
@@ -60,75 +78,125 @@ textarea, select, input[type="file"] {
 input[type="file"] { padding: 10px; cursor: pointer; }
 textarea { min-height: 110px; resize: vertical; }
 select option { background: #101d3b; color: white; }
+.cost-box {
+    margin-top: 22px; border: 1px solid rgba(45, 236, 189, 0.55);
+    background: rgba(15, 100, 82, 0.16); border-radius: 14px; padding: 15px;
+}
+.cost-label { font-size: 13px; color: #b9f6e5; }
+.cost { font-size: 27px; font-weight: 800; margin-top: 3px; }
+.cost-note { font-size: 12px; color: #9eb1d8; margin-top: 6px; }
 button {
     width: 100%; margin-top: 23px; padding: 16px; border: none; border-radius: 14px;
     cursor: pointer; color: white; font-size: 16px; font-weight: 800;
     background: linear-gradient(90deg, #21d4fd, #7868ff, #e56cff);
+    transition: transform 0.15s ease;
 }
+button:hover { transform: translateY(-1px); }
+button:disabled { opacity: 0.6; cursor: wait; }
 .message { margin-top: 22px; padding: 15px; border-radius: 12px; background: rgba(255,255,255,0.08); }
 .error { border: 1px solid #ff6d7a; color: #ffd7da; }
 .success { border: 1px solid #43e0b3; }
 video { width: 100%; margin-top: 18px; border-radius: 15px; background: black; }
 .download { display: block; text-align: center; text-decoration: none; color: white; font-weight: 700; margin-top: 14px; padding: 13px; border-radius: 12px; background: rgba(255,255,255,0.12); }
 .progress { display: none; margin-top: 20px; padding: 15px; border-radius: 12px; background: rgba(255,255,255,0.08); color: #dce8ff; }
+.tip { font-size: 12px; color: #9bb1dd; margin-top: 4px; }
 </style>
 </head>
 <body>
 <div class="wrapper">
 <div class="brand">
 <h1 class="brand-title">🎬 Future Shorts AI</h1>
-<div class="brand-subtitle">Turn your story into an AI video with dual characters & free voiceover.</div>
+<div class="brand-subtitle">Cinema-Grade Animated Story & History Video Studio</div>
 </div>
 <div class="card">
-<div class="badge">⚡ Story Mode: Dual Images & Free Voiceover</div>
+<div class="badge">⚡ Multi-Speaker Dialogue & Long-Form Chapter Engine</div>
 <form method="POST" id="videoForm" enctype="multipart/form-data">
+
 <label>Your video visual prompt</label>
-<textarea name="prompt" required>{{ prompt }}</textarea>
-<label>Voiceover Script / Dialogue (Optional - Free TTS)</label>
-<textarea name="voiceover_script">{{ voiceover_script }}</textarea>
+<textarea name="prompt" required placeholder="Describe the scene visuals, cinematic camera movement, environment, atmosphere...">{{ prompt }}</textarea>
+
+<label>Voiceover Script / Multi-Character Dialogue</label>
+<div class="tip">Format speaker lines with 'Zainab:', 'Masooma:', or 'Narrator:' for character-specific voice synthesis.</div>
+<textarea name="voiceover_script" placeholder="Narrator: Long ago in ancient Mesopotamia...&#10;Zainab: Look at these majestic ancient towers!&#10;Masooma: They were built thousands of years ago.">{{ voiceover_script }}</textarea>
+
 <label>Reference Image: Zainab (Optional)</label>
 <input type="file" name="image_zainab" accept="image/*">
+
 <label>Reference Image: Masooma (Optional)</label>
 <input type="file" name="image_masooma" accept="image/*">
-<label>Video length</label>
-<select name="duration" id="duration">
-<option value="5" {% if duration == 5 %}selected{% endif %}>5 seconds</option>
-<option value="10" {% if duration == 10 %}selected{% endif %}>10 seconds</option>
+
+<label>Video length Target</label>
+<select name="duration" id="duration" onchange="updateCost()">
+<option value="5" {% if duration == 5 %}selected{% endif %}>5 seconds (Test clip)</option>
+<option value="10" {% if duration == 10 %}selected{% endif %}>10 seconds (Short scene)</option>
 <option value="20" {% if duration == 20 %}selected{% endif %}>20 seconds</option>
-<option value="40" {% if duration == 40 %}selected{% endif %}>40 seconds</option>
-<option value="60" {% if duration == 60 %}selected{% endif %}>60 seconds</option>
+<option value="60" {% if duration == 60 %}selected{% endif %}>1 Minute</option>
+<option value="300" {% if duration == 300 %}selected{% endif %}>5 Minutes (Full Scene)</option>
+<option value="600" {% if duration == 600 %}selected{% endif %}>10 Minutes (Full Documentary Chapter)</option>
+<option value="900" {% if duration == 900 %}selected{% endif %}>15 Minutes</option>
+<option value="3600" {% if duration == 3600 %}selected{% endif %}>60 Minutes (Full Feature)</option>
 </select>
+
 <label>Video format</label>
 <select name="aspect_ratio">
-<option value="9:16" {% if aspect_ratio == "9:16" %}selected{% endif %}>Portrait 9:16</option>
-<option value="16:9" {% if aspect_ratio == "16:9" %}selected{% endif %}>Landscape 16:9</option>
+<option value="9:16" {% if aspect_ratio == "9:16" %}selected{% endif %}>Portrait 9:16 — TikTok / Shorts / Reels</option>
+<option value="16:9" {% if aspect_ratio == "16:9" %}selected{% endif %}>Landscape 16:9 — YouTube Long Form</option>
 <option value="1:1" {% if aspect_ratio == "1:1" %}selected{% endif %}>Square 1:1</option>
 </select>
-<button type="submit" id="generateButton">✨ Generate Story with Voiceover</button>
-<div class="progress" id="progress">⏳ Generating video clips and synthesizing voiceover... Please keep this page open...</div>
+
+<div class="cost-box">
+<div class="cost-label">Estimated generation cost</div>
+<div class="cost" id="cost">$0.05</div>
+<div class="cost-note">Raw FAL API estimate ($0.05 per 5s clip).</div>
+</div>
+
+<button type="submit" id="generateButton">✨ Generate Story Video with Voiceover</button>
+
+<div class="progress" id="progress">
+⏳ Generating video clips and synthesizing multi-character audio...<br>
+Please keep this browser window active during long-form renders.
+</div>
+
 </form>
+
 {% if error %}
 <div class="message error"><strong>Error:</strong> {{ error }}</div>
 {% endif %}
+
 {% if video_url %}
 <div class="message success">
-<strong>✅ Your story video is ready</strong>
+<strong>✅ Your story video is ready!</strong>
 <video controls playsinline><source src="{{ video_url }}" type="video/mp4"></video>
 <a class="download" href="{{ video_url }}" download>⬇ Download Video</a>
 </div>
 {% endif %}
+
 </div>
 </div>
+
 <script>
+function updateCost() {
+    const duration = parseInt(document.getElementById("duration").value);
+    const clips = Math.ceil(duration / 5);
+    const estimated = clips * 0.05;
+    document.getElementById("cost").innerText = "$" + estimated.toFixed(2);
+}
+
 document.getElementById("videoForm").addEventListener("submit", function() {
     document.getElementById("generateButton").disabled = true;
-    document.getElementById("generateButton").innerText = "⏳ Generating...";
+    document.getElementById("generateButton").innerText = "⏳ Rendering Movie Clips...";
     document.getElementById("progress").style.display = "block";
 });
+
+updateCost();
 </script>
 </body>
 </html>
 """
+
+# =========================================================
+# HELPERS
+# =========================================================
 
 def fal_aspect_ratio(user_ratio):
     if user_ratio == "16:9": return "3:2"
@@ -174,8 +242,92 @@ def download_video(url, destination):
         for chunk in response.iter_content(chunk_size=1024 * 1024):
             if chunk: file.write(chunk)
 
+def build_multi_speaker_audio(script_text, job_id):
+    """
+    Parses dialogue script line by line. Synthesizes individual voices
+    with character accents and stitches them into a continuous master soundtrack.
+    """
+    if not script_text.strip():
+        return None
+
+    lines = script_text.strip().split("\n")
+    audio_clips = []
+
+    for index, line in enumerate(lines):
+        line = line.strip()
+        if not line:
+            continue
+
+        speaker = "narrator"
+        text = line
+
+        # Parse speaker tag if present (e.g., "Zainab: ...", "Masooma: ...")
+        if ":" in line:
+            parts = line.split(":", 1)
+            speaker_tag = parts[0].strip().lower()
+            if speaker_tag in VOICE_PROFILES:
+                speaker = speaker_tag
+                text = parts[1].strip()
+
+        if not text:
+            continue
+
+        profile = VOICE_PROFILES.get(speaker, VOICE_PROFILES["default"])
+        temp_speech = OUTPUT_DIR / f"{job_id}_part_{index}_raw.mp3"
+        processed_speech = OUTPUT_DIR / f"{job_id}_part_{index}.mp3"
+
+        # Generate TTS line with gTTS using speaker accent domain
+        tts = gTTS(text=text, lang=profile["lang"], tld=profile["tld"], slow=False)
+        tts.save(str(temp_speech))
+
+        # Adjust pitch / tempo per character using FFmpeg filter
+        pitch = profile["pitch"]
+        filter_str = f"asetrate=44100*{pitch},aresample=44100"
+        
+        cmd = [
+            "ffmpeg", "-y", "-i", str(temp_speech),
+            "-filter:a", filter_str,
+            str(processed_speech)
+        ]
+        subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        
+        try: temp_speech.unlink(missing_ok=True)
+        except Exception: pass
+
+        if processed_speech.exists():
+            audio_clips.append(processed_speech)
+
+    if not audio_clips:
+        return None
+
+    if len(audio_clips) == 1:
+        return audio_clips[0]
+
+    # Concatenate all dialogue audio clips in sequence
+    concat_list = OUTPUT_DIR / f"{job_id}_audio_concat.txt"
+    with open(concat_list, "w", encoding="utf-8") as f:
+        for audio in audio_clips:
+            safe_path = str(audio).replace("'", "'\\''")
+            f.write(f"file '{safe_path}'\n")
+
+    master_audio = OUTPUT_DIR / f"{job_id}_master_voiceover.mp3"
+    subprocess.run([
+        "ffmpeg", "-y", "-f", "concat", "-safe", "0",
+        "-i", str(concat_list), "-c", "copy", str(master_audio)
+    ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+    # Cleanup temporary clips
+    for clip in audio_clips:
+        try: clip.unlink(missing_ok=True)
+        except Exception: pass
+    try: concat_list.unlink(missing_ok=True)
+    except Exception: pass
+
+    return master_audio
+
 def combine_videos_with_audio(video_files, output_file, tts_audio_path=None):
     temp_combined = OUTPUT_DIR / f"{uuid.uuid4()}_raw.mp4"
+    
     if len(video_files) == 1:
         os.replace(video_files[0], temp_combined)
     else:
@@ -184,8 +336,13 @@ def combine_videos_with_audio(video_files, output_file, tts_audio_path=None):
             for video in video_files:
                 safe_path = str(video).replace("'", "'\\''")
                 file.write(f"file '{safe_path}'\n")
-        subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(concat_file), "-c", "copy", str(temp_combined)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        try: concat_file.unlink()
+        
+        subprocess.run([
+            "ffmpeg", "-y", "-f", "concat", "-safe", "0",
+            "-i", str(concat_file), "-c", "copy", str(temp_combined)
+        ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        
+        try: concat_file.unlink(missing_ok=True)
         except Exception: pass
 
     if tts_audio_path and Path(tts_audio_path).exists():
@@ -207,6 +364,10 @@ def combine_videos_with_audio(video_files, output_file, tts_audio_path=None):
     if process.returncode != 0:
         raise RuntimeError("Could not combine video and voiceover. FFmpeg error: " + process.stderr[-1200:])
 
+# =========================================================
+# MAIN ROUTE
+# =========================================================
+
 @app.route("/", methods=["GET", "POST"])
 def home():
     error, video_url = None, None
@@ -217,10 +378,13 @@ def home():
     if request.method == "POST":
         prompt = request.form.get("prompt", "").strip()
         voiceover_script = request.form.get("voiceover_script", "").strip()
+        
         try: duration = int(request.form.get("duration", "5"))
         except ValueError: duration = 5
+        
         aspect_ratio = request.form.get("aspect_ratio", "9:16")
 
+        # Handle Zainab Image Upload
         file_zainab = request.files.get("image_zainab")
         if file_zainab and file_zainab.filename != "":
             try:
@@ -230,6 +394,7 @@ def home():
                 p1.unlink(missing_ok=True)
             except Exception as e1: print("ZAINAB IMAGE ERROR:", repr(e1), flush=True)
 
+        # Handle Masooma Image Upload
         file_masooma = request.files.get("image_masooma")
         if file_masooma and file_masooma.filename != "":
             try:
@@ -240,39 +405,38 @@ def home():
             except Exception as e2: print("MASOOMA IMAGE ERROR:", repr(e2), flush=True)
 
         if not prompt:
-            error = "Please enter a video idea."
+            error = "Please enter a video prompt idea."
         elif not FAL_KEY:
             error = "FAL_KEY is not configured on the server."
         else:
             try:
-                number_of_clips = duration // CLIP_LENGTH
+                number_of_clips = max(1, duration // CLIP_LENGTH)
                 job_id = str(uuid.uuid4())
                 downloaded_files = []
 
+                # Render video clips sequentially
                 for index in range(number_of_clips):
-                    scene_prompt = f"{prompt}\n\nScene {index+1} of {number_of_clips} featuring Zainab and Masooma. Consistent subject appearance, high quality."
+                    scene_prompt = f"{prompt}\n\nScene {index+1} of {number_of_clips} featuring consistent character appearance, high-definition historical aesthetic."
                     current_image_url = zainab_url if (index % 2 == 0 and zainab_url) else (masooma_url if masooma_url else zainab_url)
+                    
                     remote_url = generate_clip(scene_prompt, aspect_ratio, image_url=current_image_url)
                     local_file = OUTPUT_DIR / f"{job_id}_{index}.mp4"
                     download_video(remote_url, local_file)
                     downloaded_files.append(local_file)
 
-                tts_audio_file = None
-                if voiceover_script:
-                    try:
-                        tts = gTTS(text=voiceover_script, lang='en', slow=False)
-                        tts_audio_file = OUTPUT_DIR / f"{job_id}_voice.mp3"
-                        tts.save(str(tts_audio_file))
-                    except Exception as tts_err: print("TTS ERROR:", repr(tts_err), flush=True)
+                # Generate multi-character voiceover soundtrack
+                tts_audio_file = build_multi_speaker_audio(voiceover_script, job_id)
 
+                # Merge video clips with master soundtrack
                 final_file = OUTPUT_DIR / f"{job_id}_final.mp4"
                 combine_videos_with_audio(downloaded_files, final_file, tts_audio_path=tts_audio_file)
 
+                # Cleanup temporary video files
                 for temp_file in downloaded_files:
-                    try: temp_file.unlink()
+                    try: temp_file.unlink(missing_ok=True)
                     except Exception: pass
                 if tts_audio_file and tts_audio_file.exists():
-                    try: tts_audio_file.unlink()
+                    try: tts_audio_file.unlink(missing_ok=True)
                     except Exception: pass
 
                 video_url = "/video/" + final_file.name
@@ -280,7 +444,10 @@ def home():
                 print("ERROR:", repr(exc), flush=True)
                 error = str(exc)
 
-    return render_template_string(HTML, prompt=prompt, voiceover_script=voiceover_script, duration=duration, aspect_ratio=aspect_ratio, video_url=video_url, error=error)
+    return render_template_string(
+        HTML, prompt=prompt, voiceover_script=voiceover_script,
+        duration=duration, aspect_ratio=aspect_ratio, video_url=video_url, error=error
+    )
 
 @app.route("/video/<filename>")
 def video(filename):

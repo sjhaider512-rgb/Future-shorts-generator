@@ -224,7 +224,7 @@ def generate_ai_direction(topic, num_scenes):
 
 def fal_aspect_ratio(user_ratio):
     if user_ratio == "16:9": return "3:2"
-    return "2:3"
+    return "9:16"
 
 def fal_resolution(user_ratio):
     if user_ratio == "16:9": return "768x512"

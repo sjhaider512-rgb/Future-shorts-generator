@@ -463,7 +463,7 @@ video {
 
 <div class="brand-subtitle">
 
-Turn your idea into an AI video with audio & reference images.
+Turn your story into an AI video with audio & dual reference images.
 
 </div>
 
@@ -475,7 +475,7 @@ Turn your idea into an AI video with audio & reference images.
 
 <div class="badge">
 
-⚡ Economy Model with Audio & Image Support
+⚡ Story Mode: Zainab & Masooma Support
 
 </div>
 
@@ -489,7 +489,7 @@ Turn your idea into an AI video with audio & reference images.
 
 <label>
 
-Your video idea
+Your video idea / story
 
 </label>
 
@@ -497,20 +497,34 @@ Your video idea
 <textarea
     name="prompt"
     required
-    placeholder="Example: Futuristic London at night with flying cars above Tower Bridge, cinematic lighting, realistic movement..."
+    placeholder="Example: In the Rainbow Kingdom lived a little princess named Zainab, with her sister Masooma..."
 >{{ prompt }}</textarea>
 
 
 <label>
 
-Reference Image (Optional)
+Reference Image: Zainab (Optional)
 
 </label>
 
 
 <input
     type="file"
-    name="reference_image"
+    name="image_zainab"
+    accept="image/*"
+>
+
+
+<label>
+
+Reference Image: Masooma (Optional)
+
+</label>
+
+
+<input
+    type="file"
+    name="image_masooma"
     accept="image/*"
 >
 
@@ -641,7 +655,7 @@ Approximate estimate. Actual FAL charges may vary.
 
 <div class="cost-note">
 
-Economy model: Kandinsky 5 Distill
+Economy model: Kandinsky 5 Distill with Audio
 
 </div>
 
@@ -651,7 +665,7 @@ Economy model: Kandinsky 5 Distill
     id="generateButton"
 >
 
-✨ Generate Video
+✨ Generate Sister Story Video
 
 </button>
 
@@ -661,7 +675,7 @@ Economy model: Kandinsky 5 Distill
     id="progress"
 >
 
-⏳ Generating your AI video with sound and effects.
+⏳ Generating your sisters' story video with sound and characters.
 
 Longer videos require multiple AI clips.
 
@@ -892,7 +906,7 @@ def generate_clip(
         "resolution": resolution,
         "aspect_ratio": api_ratio,
         "duration": "5s",
-        "audio": True, # Enables built-in audio generation for sound effects and audio tracks
+        "audio": True,
     }
 
     if image_url:
@@ -1078,7 +1092,8 @@ def home():
 
     aspect_ratio = "9:16"
 
-    uploaded_image_url = None
+    zainab_url = None
+    masooma_url = None
 
     if request.method == "POST":
 
@@ -1115,20 +1130,27 @@ def home():
 
         )
 
-        # Handle reference image upload
-        image_file = request.files.get("reference_image")
-
-        if image_file and image_file.filename != "":
+        # Handle Zainab's reference image
+        file_zainab = request.files.get("image_zainab")
+        if file_zainab and file_zainab.filename != "":
             try:
-                temp_img_path = Path(tempfile.gettempdir()) / f"{uuid.uuid4()}_{image_file.filename}"
-                image_file.save(temp_img_path)
-                
-                # Upload to FAL storage
-                uploaded_image_url = fal_client.upload(str(temp_img_path))
-                
-                temp_img_path.unlink(missing_ok=True)
-            except Exception as img_err:
-                print("IMAGE UPLOAD ERROR:", repr(img_err), flush=True)
+                p1 = Path(tempfile.gettempdir()) / f"{uuid.uuid4()}_{file_zainab.filename}"
+                file_zainab.save(p1)
+                zainab_url = fal_client.upload(str(p1))
+                p1.unlink(missing_ok=True)
+            except Exception as e1:
+                print("ZAINAB IMAGE ERROR:", repr(e1), flush=True)
+
+        # Handle Masooma's reference image
+        file_masooma = request.files.get("image_masooma")
+        if file_masooma and file_masooma.filename != "":
+            try:
+                p2 = Path(tempfile.gettempdir()) / f"{uuid.uuid4()}_{file_masooma.filename}"
+                file_masooma.save(p2)
+                masooma_url = fal_client.upload(str(p2))
+                p2.unlink(missing_ok=True)
+            except Exception as e2:
+                print("MASOOMA IMAGE ERROR:", repr(e2), flush=True)
 
         allowed_durations = [
 
@@ -1202,12 +1224,11 @@ def home():
 {prompt}
 
 This is scene {scene_number} of {number_of_clips}
-of one continuous cinematic video.
+of one continuous cinematic video featuring Zainab and Masooma.
 
 Maintain consistent subject appearance,
 characters,
 clothing,
-vehicle design,
 environment,
 lighting,
 camera style,
@@ -1236,7 +1257,9 @@ Cinematic composition.
 High visual quality.
 """
 
-                    current_image_url = uploaded_image_url if index == 0 else None
+                    # For the first clip or alternating clips, you can guide with Zainab's or Masooma's photo
+                    # We default to Zainab's image if available for the first clip
+                    current_image_url = zainab_url if (index % 2 == 0 and zainab_url) else (masooma_url if masooma_url else zainab_url)
 
                     remote_url = generate_clip(
 

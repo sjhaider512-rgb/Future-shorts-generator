@@ -23,7 +23,8 @@ if FAL_KEY:
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
-MODEL_ID = "fal-ai/kandinsky5/text-to-video/distill"
+# Upgraded to a high-speed, reliable video model to bypass 503 queues
+MODEL_ID = "fal-ai/kling-video/v1.5/standard/text-to-video"
 CLIP_LENGTH = 5
 OUTPUT_DIR = Path(tempfile.gettempdir()) / "future_shorts"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -193,7 +194,7 @@ document.getElementById("videoForm").addEventListener("submit", function() {
                 progressSubtext.innerText = "Structuring script and visual keyframes...";
             } else if (percent === 40) {
                 progressStatus.innerText = "Rendering Video Clips";
-                progressSubtext.innerText = "Producing continuous frames via FAL AI...";
+                progressSubtext.innerText = "Producing continuous frames via Kling/FAL AI...";
             } else if (percent === 75) {
                 progressStatus.innerText = "Synthesizing Audio & Stitching";
                 progressSubtext.innerText = "Recording voiceover and assembling with FFmpeg...";
@@ -235,7 +236,7 @@ def generate_ai_direction(topic, num_scenes):
     )
     
     response = client.models.generate_content(
-        model='gemini-3.8-flash',
+        model='gemini-2.5-flash',
         contents=prompt
     )
     
@@ -253,10 +254,10 @@ def generate_ai_direction(topic, num_scenes):
 # =========================================================
 
 def fal_aspect_ratio(user_ratio):
-    return "3:2"
+    return "16:9" if user_ratio == "16:9" else "9:16"
 
 def fal_resolution(user_ratio):
-    return "768x512"
+    return "1280x720" if user_ratio == "16:9" else "720x1280"
 
 def extract_video_url(result):
     if not result: return None
@@ -275,10 +276,8 @@ def extract_last_frame(video_path, output_image_path):
 def generate_clip(prompt, user_aspect_ratio, image_url=None):
     arguments = {
         "prompt": prompt,
-        "resolution": fal_resolution(user_aspect_ratio),
         "aspect_ratio": fal_aspect_ratio(user_aspect_ratio),
-        "duration": "5s",
-        "audio": True,
+        "duration": "5",
     }
     if image_url: arguments["image_url"] = image_url
     result = fal_client.subscribe(MODEL_ID, arguments=arguments, with_logs=True)
@@ -402,7 +401,7 @@ def home():
                     
                     current_image_url = None
                     for index, scene in enumerate(scenes[:number_of_clips]):
-                        scene_visual = f"Static medium shot, fixed camera. {master_theme}. {scene.get('visual_prompt', '')}"
+                        scene_visual = f"Cinematic documentary shot. {master_theme}. {scene.get('visual_prompt', '')}"
                         narration_texts.append(scene.get("narration", ""))
                         
                         remote_url = generate_clip(scene_visual, aspect_ratio, image_url=current_image_url)
@@ -424,7 +423,7 @@ def home():
                     narration_texts = [voiceover_script] if voiceover_script else [""]
                     current_image_url = None
                     for index in range(number_of_clips):
-                        scene_prompt = f"Static medium shot, fixed camera. {prompt}\n\nScene {index+1} of {number_of_clips}, maintaining strict character and scene continuity."
+                        scene_prompt = f"Cinematic documentary shot. {prompt}\n\nScene {index+1} of {number_of_clips}."
                         remote_url = generate_clip(scene_prompt, aspect_ratio, image_url=current_image_url)
                         local_file = OUTPUT_DIR / f"{job_id}_{index}.mp4"
                         download_video(remote_url, local_file)

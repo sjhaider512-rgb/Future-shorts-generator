@@ -308,5 +308,5 @@ def build_single_narrator_audio(narration_texts, job_id):
     concat_list = OUTPUT_DIR / f"{job_id}_audio_concat.txt"
     with open(concat_list, "w", encoding="utf-8") as f:
         for audio in audio_clips:
-            safe_path = str(audio).replace("'", "'\\
+            safe_path = str
 

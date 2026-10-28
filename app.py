@@ -179,7 +179,7 @@ def generate_video():
     clean_narration = re.sub(r"\*\*.*?\*\*", "", script_text)
     clean_narration = re.sub(r"\[.*?\]", "", clean_narration)
 
-    # 2. Generate Video Clip via fal.ai using the current active H3 Max endpoint
+    # 2. Generate Video Clip via fal.ai Turbo endpoint to bypass traffic 503 errors
     video_url = ""
     try:
       if os.getenv("FAL_KEY"):
@@ -188,7 +188,7 @@ def generate_video():
             f" 4k, photorealistic"
         )
         result = fal_client.subscribe(
-            "minimax/h3-max/text-to-video",
+            "minimax/h3-max-turbo/text-to-video",
             arguments={
                 "prompt": video_prompt,
             },

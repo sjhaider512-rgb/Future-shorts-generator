@@ -110,6 +110,12 @@ HTML_TEMPLATE = """
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ customScript, duration, aspectRatio })
                 });
+                
+                const contentType = response.headers.get("content-type");
+                if (!contentType || !contentType.includes("application/json")) {
+                    throw new Error("Server returned a non-JSON response (likely a timeout or server error).");
+                }
+
                 const data = await response.json();
                 loading.style.display = 'none';
 
@@ -156,7 +162,7 @@ def generate_video():
     # 1. Generate Script via Gemini Flash
     prompt = (
         f"Create a cinematic documentary script ({duration}, {aspect_ratio}) about:"
-        f' "{custom_script or "The wonders of space and technology"}"'
+        f' "{custom_script or "The mystery of Bermuda triangle"}"'
     )
 
     response = client.models.generate_content(
@@ -168,20 +174,23 @@ def generate_video():
     clean_narration = re.sub(r"\*\*.*?\*\*", "", script_text)
     clean_narration = re.sub(r"\[.*?\]", "", clean_narration)
 
-    # 2. Generate Video Clip via fal.ai (using Minimax video model)
-    video_prompt = (
-        f"Cinematic documentary shot, {custom_script or 'futuristic science tech'},"
-        f" 4k, high production value"
-    )
-
-    handler = fal_client.submit(
-        "fal-ai/minimax/video-01",
-        arguments={
-            "prompt": video_prompt,
-        },
-    )
-    result = handler.get()
-    video_url = result.get("video", {}).get("url")
+    # 2. Generate Video Clip via fal.ai
+    video_url = ""
+    try:
+      video_prompt = (
+          f"Cinematic documentary footage, {custom_script or 'mysterious ocean'},"
+          f" 4k, photorealistic"
+      )
+      result = fal_client.subscribe(
+          "fal-ai/minimax/video-01",
+          arguments={
+              "prompt": video_prompt,
+          },
+      )
+      video_url = result.get("video", {}).get("url", "")
+    except Exception as fal_err:
+      # If fal.ai fails, we still return the script and audio rather than total failure
+      print("Fal.ai warning:", str(fal_err))
 
     return jsonify({
         "success": True,

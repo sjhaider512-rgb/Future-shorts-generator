@@ -65,7 +65,7 @@ HTML_TEMPLATE = """
         </div>
 
         <button onclick="generateDocumentary()">✨ Direct & Generate Documentary Video</button>
-        <div id="loading">Synthesizing script, voiceover, and fal.ai video clip (this may take 20-30 seconds)...</div>
+        <div id="loading">Synthesizing script, voiceover, and fal.ai video clip...</div>
         
         <div id="errorBox" class="error-box" style="display:none;"></div>
 
@@ -116,7 +116,7 @@ HTML_TEMPLATE = """
                 
                 const contentType = response.headers.get("content-type");
                 if (!contentType || !contentType.includes("application/json")) {
-                    throw new Error("Render timeout reached. Try using a shorter duration test or check your FAL_KEY environment variable.");
+                    throw new Error("Server returned a non-JSON response.");
                 }
 
                 const data = await response.json();
@@ -167,7 +167,7 @@ def generate_video():
     # 1. Generate Script via Gemini Flash
     prompt = (
         f"Create a cinematic documentary script ({duration}, {aspect_ratio}) about:"
-        f' "{custom_script or "The mystery of Bermuda triangle"}"'
+        f' "{custom_script or "The mystery of Bermuda Triangle"}"'
     )
 
     response = client.models.generate_content(
@@ -179,7 +179,7 @@ def generate_video():
     clean_narration = re.sub(r"\*\*.*?\*\*", "", script_text)
     clean_narration = re.sub(r"\[.*?\]", "", clean_narration)
 
-    # 2. Generate Video Clip via fal.ai with error trapping
+    # 2. Generate Video Clip via fal.ai using the current active H3 Max endpoint
     video_url = ""
     try:
       if os.getenv("FAL_KEY"):
@@ -188,7 +188,7 @@ def generate_video():
             f" 4k, photorealistic"
         )
         result = fal_client.subscribe(
-            "fal-ai/minimax/video-01",
+            "minimax/h3-max/text-to-video",
             arguments={
                 "prompt": video_prompt,
             },

@@ -1,6 +1,7 @@
 import io
 import os
 import re
+import fal_client
 from flask import Flask, jsonify, render_template_string, request, send_file
 from google import genai
 from google.genai import types
@@ -8,7 +9,7 @@ from gtts import gTTS
 
 app = Flask(__name__)
 
-# Initialize the official Google GenAI client
+# Initialize clients
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
 HTML_TEMPLATE = """
@@ -30,9 +31,9 @@ HTML_TEMPLATE = """
         button { background-color: #0284c7; color: white; border: none; padding: 14px 20px; width: 100%; font-size: 1rem; font-weight: bold; border-radius: 6px; cursor: pointer; transition: background 0.2s; margin-top: 15px; }
         button:hover { background-color: #0369a1; }
         #loading { display: none; text-align: center; margin-top: 15px; color: #38bdf8; font-style: italic; }
-        .result-box { margin-top: 20px; background: #0b0f19; padding: 20px; border-radius: 6px; border: 1px solid #374151; white-space: pre-wrap; line-height: 1.6; color: #e2e8f0; max-height: 400px; overflow-y: auto; }
-        .audio-box { margin-top: 20px; background: #0b0f19; padding: 15px; border-radius: 8px; border: 1px solid #0284c7; text-align: center; }
-        audio { width: 100%; margin-top: 10px; }
+        .result-box { margin-top: 20px; background: #0b0f19; padding: 20px; border-radius: 6px; border: 1px solid #374151; white-space: pre-wrap; line-height: 1.6; color: #e2e8f0; max-height: 300px; overflow-y: auto; }
+        .media-box { margin-top: 20px; background: #0b0f19; padding: 15px; border-radius: 8px; border: 1px solid #0284c7; text-align: center; }
+        audio, video { width: 100%; margin-top: 10px; border-radius: 6px; }
         .error-box { margin-top: 15px; background: #7f1d1d; color: #fca5a5; padding: 12px; border-radius: 6px; border: 1px solid #991b1b; font-size: 0.85rem; word-break: break-all; }
     </style>
 </head>
@@ -44,14 +45,12 @@ HTML_TEMPLATE = """
         <textarea id="script" placeholder="Narrator script here..."></textarea>
 
         <label for="duration">Video Length Target</label>
-        <select id="duration">
-            <option value="5 seconds">5 seconds (1 scene test)</option>
-            <option value="10 seconds" selected>10 seconds (2 scenes test)</option>
-            <option value="15 seconds">15 seconds</option>
-            <option value="20 seconds">20 seconds</option>
-            <option value="30 seconds">30 seconds</option>
-            <option value="60 seconds">60 seconds (Short)</option>
-            <option value="8-10 minutes">8-10 minutes (Long-form)</option>
+        <select id="duration" onchange="updateCost()">
+            <option value="5 seconds" data-cost="0.05">5 seconds (1 scene test) - $0.05</option>
+            <option value="10 seconds" data-cost="0.10" selected>10 seconds (2 scenes test) - $0.10</option>
+            <option value="15 seconds" data-cost="0.15">15 seconds - $0.15</option>
+            <option value="20 seconds" data-cost="0.20">20 seconds - $0.20</option>
+            <option value="30 seconds" data-cost="0.30">30 seconds - $0.30</option>
         </select>
 
         <label for="aspectRatio">Video Format</label>
@@ -62,37 +61,48 @@ HTML_TEMPLATE = """
 
         <div class="cost-box">
             Estimated generation cost<br>
-            <span>$0.10</span> <span style="font-size:0.8rem; color:#64748b; font-weight:normal;">(free FAL API estimate / $0.05 per clip)</span>
+            <span id="costDisplay">$0.10</span> <span style="font-size:0.8rem; color:#64748b; font-weight:normal;">(fal.ai estimate)</span>
         </div>
 
-        <button onclick="generateVideoContent()">✨ Direct & Generate Documentary Video</button>
-        <div id="loading">Synthesizing script & voiceover with Gemini Flash...</div>
+        <button onclick="generateDocumentary()">✨ Direct & Generate Documentary Video</button>
+        <div id="loading">Synthesizing script, voiceover, and fal.ai video clip...</div>
         
         <div id="errorBox" class="error-box" style="display:none;"></div>
 
-        <div id="audioPlayerContainer" class="audio-box" style="display:none;">
-            <h3 style="color:#38bdf8; margin:0 0 10px 0; font-size: 1rem;">🎙️ Voiceover Audio Preview</h3>
+        <div id="mediaContainer" class="media-box" style="display:none;">
+            <h3 style="color:#38bdf8; margin:0 0 10px 0; font-size: 1rem;">🎙️ Voiceover Audio</h3>
             <audio id="audioPlayer" controls></audio>
+            
+            <h3 style="color:#38bdf8; margin:15px 0 10px 0; font-size: 1rem;">🎥 Generated fal.ai Video Clip</h3>
+            <video id="videoPlayer" controls></video>
         </div>
 
         <div id="result" class="result-box" style="display:none;"></div>
     </div>
 
     <script>
-        async function generateVideoContent() {
+        function updateCost() {
+            const durationSelect = document.getElementById('duration');
+            const selectedOption = durationSelect.options[durationSelect.selectedIndex];
+            const cost = selectedOption.getAttribute('data-cost');
+            document.getElementById('costDisplay').innerText = '$' + Number(cost).toFixed(2);
+        }
+
+        async function generateDocumentary() {
             const customScript = document.getElementById('script').value;
             const duration = document.getElementById('duration').value;
             const aspectRatio = document.getElementById('aspectRatio').value;
             const loading = document.getElementById('loading');
             const resultBox = document.getElementById('result');
             const errorBox = document.getElementById('errorBox');
-            const audioContainer = document.getElementById('audioPlayerContainer');
+            const mediaContainer = document.getElementById('mediaContainer');
             const audioPlayer = document.getElementById('audioPlayer');
+            const videoPlayer = document.getElementById('videoPlayer');
             
             loading.style.display = 'block';
             resultBox.style.display = 'none';
             errorBox.style.display = 'none';
-            audioContainer.style.display = 'none';
+            mediaContainer.style.display = 'none';
 
             try {
                 const response = await fetch('/generate-video', {
@@ -108,10 +118,12 @@ HTML_TEMPLATE = """
                     resultBox.innerText = data.script;
 
                     if (data.narration_text) {
-                        const audioUrl = '/generate-audio?text=' + encodeURIComponent(data.narration_text);
-                        audioPlayer.src = audioUrl;
-                        audioContainer.style.display = 'block';
+                        audioPlayer.src = '/generate-audio?text=' + encodeURIComponent(data.narration_text);
                     }
+                    if (data.video_url) {
+                        videoPlayer.src = data.video_url;
+                    }
+                    mediaContainer.style.display = 'block';
                 } else {
                     errorBox.style.display = 'block';
                     errorBox.innerText = "Error: " + data.error;
@@ -141,35 +153,41 @@ def generate_video():
     duration = data.get("duration", "10 seconds")
     aspect_ratio = data.get("aspectRatio", "Portrait 9:16")
 
-    if custom_script:
-      prompt = f"""
-            Enhance and format this custom narrator script for a cinematic documentary ({duration}, {aspect_ratio}):
-            "{custom_script}"
-            Provide structured scene breakdowns and clean voiceover text.
-            """
-    else:
-      prompt = f"""
-            You are an elite Hollywood documentary writer. Create a compelling documentary script and visual scene breakdown.
-            Target Duration: {duration}
-            Format: {aspect_ratio}
-            """
+    # 1. Generate Script via Gemini Flash
+    prompt = (
+        f"Create a cinematic documentary script ({duration}, {aspect_ratio}) about:"
+        f' "{custom_script or "The wonders of space and technology"}"'
+    )
 
-    # Using the fully supported current model to eliminate 404 errors
     response = client.models.generate_content(
         model="gemini-flash-latest",
         contents=prompt,
     )
-
     script_text = response.text
 
-    # Extract clean narration text for the voiceover generator
     clean_narration = re.sub(r"\*\*.*?\*\*", "", script_text)
     clean_narration = re.sub(r"\[.*?\]", "", clean_narration)
+
+    # 2. Generate Video Clip via fal.ai (using Minimax video model)
+    video_prompt = (
+        f"Cinematic documentary shot, {custom_script or 'futuristic science tech'},"
+        f" 4k, high production value"
+    )
+
+    handler = fal_client.submit(
+        "fal-ai/minimax/video-01",
+        arguments={
+            "prompt": video_prompt,
+        },
+    )
+    result = handler.get()
+    video_url = result.get("video", {}).get("url")
 
     return jsonify({
         "success": True,
         "script": script_text,
         "narration_text": clean_narration[:1000],
+        "video_url": video_url,
     })
 
   except Exception as e:

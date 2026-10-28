@@ -23,7 +23,6 @@ if FAL_KEY:
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
-# Upgraded to a high-speed, reliable video model to bypass 503 queues
 MODEL_ID = "fal-ai/kling-video/v1.5/standard/text-to-video"
 CLIP_LENGTH = 5
 OUTPUT_DIR = Path(tempfile.gettempdir()) / "future_shorts"
@@ -236,7 +235,7 @@ def generate_ai_direction(topic, num_scenes):
     )
     
     response = client.models.generate_content(
-        model='gemini-2.5-flash',
+        model='gemini-2.0-flash',
         contents=prompt
     )
     

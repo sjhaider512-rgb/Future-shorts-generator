@@ -65,7 +65,7 @@ HTML_TEMPLATE = """
         </div>
 
         <button onclick="generateDocumentary()">✨ Direct & Generate Documentary Video</button>
-        <div id="loading">Synthesizing script, voiceover, and fal.ai video clip...</div>
+        <div id="loading">Synthesizing script, voiceover, and fal.ai video clip (this may take 20-30 seconds)...</div>
         
         <div id="errorBox" class="error-box" style="display:none;"></div>
 
@@ -73,8 +73,8 @@ HTML_TEMPLATE = """
             <h3 style="color:#38bdf8; margin:0 0 10px 0; font-size: 1rem;">🎙️ Voiceover Audio</h3>
             <audio id="audioPlayer" controls></audio>
             
-            <h3 style="color:#38bdf8; margin:15px 0 10px 0; font-size: 1rem;">🎥 Generated fal.ai Video Clip</h3>
-            <video id="videoPlayer" controls></video>
+            <h3 id="videoTitle" style="color:#38bdf8; margin:15px 0 10px 0; font-size: 1rem; display:none;">🎥 Generated fal.ai Video Clip</h3>
+            <video id="videoPlayer" controls style="display:none;"></video>
         </div>
 
         <div id="result" class="result-box" style="display:none;"></div>
@@ -98,11 +98,14 @@ HTML_TEMPLATE = """
             const mediaContainer = document.getElementById('mediaContainer');
             const audioPlayer = document.getElementById('audioPlayer');
             const videoPlayer = document.getElementById('videoPlayer');
+            const videoTitle = document.getElementById('videoTitle');
             
             loading.style.display = 'block';
             resultBox.style.display = 'none';
             errorBox.style.display = 'none';
             mediaContainer.style.display = 'none';
+            videoPlayer.style.display = 'none';
+            videoTitle.style.display = 'none';
 
             try {
                 const response = await fetch('/generate-video', {
@@ -113,7 +116,7 @@ HTML_TEMPLATE = """
                 
                 const contentType = response.headers.get("content-type");
                 if (!contentType || !contentType.includes("application/json")) {
-                    throw new Error("Server returned a non-JSON response (likely a timeout or server error).");
+                    throw new Error("Render timeout reached. Try using a shorter duration test or check your FAL_KEY environment variable.");
                 }
 
                 const data = await response.json();
@@ -128,6 +131,8 @@ HTML_TEMPLATE = """
                     }
                     if (data.video_url) {
                         videoPlayer.src = data.video_url;
+                        videoPlayer.style.display = 'block';
+                        videoTitle.style.display = 'block';
                     }
                     mediaContainer.style.display = 'block';
                 } else {
@@ -174,23 +179,23 @@ def generate_video():
     clean_narration = re.sub(r"\*\*.*?\*\*", "", script_text)
     clean_narration = re.sub(r"\[.*?\]", "", clean_narration)
 
-    # 2. Generate Video Clip via fal.ai
+    # 2. Generate Video Clip via fal.ai with error trapping
     video_url = ""
     try:
-      video_prompt = (
-          f"Cinematic documentary footage, {custom_script or 'mysterious ocean'},"
-          f" 4k, photorealistic"
-      )
-      result = fal_client.subscribe(
-          "fal-ai/minimax/video-01",
-          arguments={
-              "prompt": video_prompt,
-          },
-      )
-      video_url = result.get("video", {}).get("url", "")
+      if os.getenv("FAL_KEY"):
+        video_prompt = (
+            f"Cinematic documentary footage, {custom_script or 'mysterious ocean'},"
+            f" 4k, photorealistic"
+        )
+        result = fal_client.subscribe(
+            "fal-ai/minimax/video-01",
+            arguments={
+                "prompt": video_prompt,
+            },
+        )
+        video_url = result.get("video", {}).get("url", "")
     except Exception as fal_err:
-      # If fal.ai fails, we still return the script and audio rather than total failure
-      print("Fal.ai warning:", str(fal_err))
+      print("fal.ai generation note:", str(fal_err))
 
     return jsonify({
         "success": True,
